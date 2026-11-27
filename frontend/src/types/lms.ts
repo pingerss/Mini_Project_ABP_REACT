@@ -19,6 +19,9 @@ export interface CourseDto {
   status: number;
   creationTime: string;
   totalLessons: number;
+  completedLessons?: number;
+  progressPercent?: number;
+  enrollmentStatus?: number | null;
   isEnrolled: boolean;
   enrollmentId?: string | null;
   lessons: LessonDto[];
@@ -88,6 +91,16 @@ export interface CreateStudentDto {
 export interface AssignCoursesToStudentDto {
   studentId: string;
   courseIds: string[];
+}
+
+export interface ResetStudentPasswordDto {
+  studentId: string;
+  newPassword: string;
+}
+
+export interface ChangeMyPasswordDto {
+  currentPassword: string;
+  newPassword: string;
 }
 
 export interface StudentEnrolledCourseItemDto {

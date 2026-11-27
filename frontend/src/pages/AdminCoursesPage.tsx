@@ -13,6 +13,11 @@ export const AdminCoursesPage: React.FC = () => {
   const [courses, setCourses] = useState<CourseDto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Tìm kiếm & lọc trạng thái
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | '0' | '1' | '2'>('all');
 
   // Form state (tạo mới hoặc chỉnh sửa)
   const [showForm, setShowForm] = useState(false);
@@ -23,6 +28,7 @@ export const AdminCoursesPage: React.FC = () => {
     status: 1,
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const loadCourses = async () => {
     try {
@@ -47,6 +53,7 @@ export const AdminCoursesPage: React.FC = () => {
   const openCreateForm = () => {
     setEditingId(null);
     setFormData({ title: '', description: '', status: 1 });
+    setFeedback(null);
     setShowForm(true);
   };
 
@@ -57,6 +64,7 @@ export const AdminCoursesPage: React.FC = () => {
       description: course.description,
       status: course.status,
     });
+    setFeedback(null);
     setShowForm(true);
   };
 
@@ -64,15 +72,21 @@ export const AdminCoursesPage: React.FC = () => {
     e.preventDefault();
     try {
       setIsSaving(true);
+      setFeedback(null);
       if (editingId) {
         await lmsService.updateCourse(editingId, formData);
+        setFeedback({ type: 'success', text: 'Đã cập nhật khóa học thành công.' });
       } else {
         await lmsService.createCourse(formData);
+        setFeedback({ type: 'success', text: 'Đã tạo khóa học mới thành công.' });
       }
       setShowForm(false);
       await loadCourses();
     } catch (err: any) {
-      alert(err.response?.data?.error?.message || 'Lưu khóa học thất bại.');
+      setFeedback({
+        type: 'error',
+        text: err.response?.data?.error?.message || 'Lưu khóa học thất bại.',
+      });
     } finally {
       setIsSaving(false);
     }
@@ -81,12 +95,28 @@ export const AdminCoursesPage: React.FC = () => {
   const handleDelete = async (course: CourseDto) => {
     if (!window.confirm(`Bạn có chắc muốn xóa khóa học "${course.title}"?`)) return;
     try {
+      setDeletingId(course.id);
+      setFeedback(null);
       await lmsService.deleteCourse(course.id);
+      setFeedback({ type: 'success', text: `Đã xóa khóa học "${course.title}".` });
       await loadCourses();
     } catch (err: any) {
-      alert(err.response?.data?.error?.message || 'Xóa khóa học thất bại.');
+      setFeedback({
+        type: 'error',
+        text: err.response?.data?.error?.message || 'Xóa khóa học thất bại.',
+      });
+    } finally {
+      setDeletingId(null);
     }
   };
+
+  const filteredCourses = courses.filter((c) => {
+    const q = searchTerm.trim().toLowerCase();
+    const matchesSearch =
+      !q || c.title.toLowerCase().includes(q) || c.description.toLowerCase().includes(q);
+    const matchesStatus = statusFilter === 'all' || String(c.status) === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   const publishedCount = courses.filter((c) => c.status === 1).length;
   const draftCount = courses.filter((c) => c.status === 0).length;
@@ -124,7 +154,7 @@ export const AdminCoursesPage: React.FC = () => {
               fontSize: 14,
             }}
           >
-            👥 Quản lý & Cấp tài khoản Học viên
+            Quản lý & Cấp tài khoản Học viên
           </Link>
           <button
             onClick={openCreateForm}
@@ -150,7 +180,7 @@ export const AdminCoursesPage: React.FC = () => {
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
           gap: 16,
-          marginBottom: 24,
+          marginBottom: 20,
         }}
       >
         <div style={{ padding: 18, backgroundColor: '#ffffff', borderRadius: 10, border: '1px solid #e2e8f0' }}>
@@ -166,6 +196,23 @@ export const AdminCoursesPage: React.FC = () => {
           <div style={{ fontSize: 28, fontWeight: 700, color: '#d97706', marginTop: 4 }}>{draftCount}</div>
         </div>
       </div>
+
+      {feedback && (
+        <div
+          style={{
+            padding: '12px 16px',
+            marginBottom: 18,
+            borderRadius: 8,
+            backgroundColor: feedback.type === 'success' ? '#ecfdf5' : '#fef2f2',
+            color: feedback.type === 'success' ? '#065f46' : '#dc2626',
+            border: `1px solid ${feedback.type === 'success' ? '#a7f3d0' : '#fecaca'}`,
+            fontWeight: 500,
+            fontSize: 14,
+          }}
+        >
+          {feedback.text}
+        </div>
+      )}
 
       {/* Form Tạo / Sửa khóa học */}
       {showForm && (
@@ -223,8 +270,8 @@ export const AdminCoursesPage: React.FC = () => {
               style={{ padding: 10, borderRadius: 8, border: '1px solid #cbd5e1', minWidth: 240 }}
             >
               <option value={0}>Bản nháp (Draft - Học viên chưa thấy)</option>
-              <option value={1}>Đã xuất bản (Published - Mở đăng ký)</option>
-              <option value={2}>Lưu trữ (Archived)</option>
+              <option value={1}>Đã xuất bản (Published - Học viên vào học được)</option>
+              <option value={2}>Lưu trữ (Archived - Tạm đóng)</option>
             </select>
           </div>
 
@@ -263,6 +310,43 @@ export const AdminCoursesPage: React.FC = () => {
         </form>
       )}
 
+      {/* Thanh tìm kiếm & lọc trạng thái */}
+      {courses.length > 0 && (
+        <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Tìm kiếm theo tên hoặc mô tả khóa học..."
+            style={{
+              flex: 1,
+              minWidth: 240,
+              padding: '10px 14px',
+              borderRadius: 8,
+              border: '1px solid #cbd5e1',
+              backgroundColor: '#ffffff',
+              fontSize: 14,
+            }}
+          />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as any)}
+            style={{
+              padding: '10px 14px',
+              borderRadius: 8,
+              border: '1px solid #cbd5e1',
+              backgroundColor: '#ffffff',
+              fontSize: 14,
+            }}
+          >
+            <option value="all">Tất cả trạng thái</option>
+            <option value="1">Đã xuất bản (Published)</option>
+            <option value="0">Bản nháp (Draft)</option>
+            <option value="2">Lưu trữ (Archived)</option>
+          </select>
+        </div>
+      )}
+
       {/* Bảng danh sách khóa học */}
       {isLoading ? (
         <p>Đang tải danh sách khóa học...</p>
@@ -273,6 +357,10 @@ export const AdminCoursesPage: React.FC = () => {
       ) : courses.length === 0 ? (
         <div style={{ padding: 32, textAlign: 'center', backgroundColor: '#ffffff', borderRadius: 12, border: '1px solid #e2e8f0' }}>
           Chưa có khóa học nào. Hãy bấm <b>"+ Tạo khóa học mới"</b> để bắt đầu.
+        </div>
+      ) : filteredCourses.length === 0 ? (
+        <div style={{ padding: 28, textAlign: 'center', backgroundColor: '#ffffff', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+          Không tìm thấy khóa học nào khớp với từ khóa tìm kiếm.
         </div>
       ) : (
         <div style={{ backgroundColor: '#ffffff', borderRadius: 12, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
@@ -286,8 +374,9 @@ export const AdminCoursesPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {courses.map((course) => {
+              {filteredCourses.map((course) => {
                 const badge = STATUS_LABELS[course.status] || STATUS_LABELS[0];
+                const isDeleting = deletingId === course.id;
                 return (
                   <tr key={course.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                     <td style={{ padding: '14px 16px' }}>
@@ -344,6 +433,7 @@ export const AdminCoursesPage: React.FC = () => {
                         </button>
                         <button
                           onClick={() => handleDelete(course)}
+                          disabled={isDeleting}
                           style={{
                             padding: '6px 12px',
                             borderRadius: 6,
@@ -352,10 +442,11 @@ export const AdminCoursesPage: React.FC = () => {
                             color: '#b91c1c',
                             fontWeight: 600,
                             fontSize: 13,
-                            cursor: 'pointer',
+                            cursor: isDeleting ? 'not-allowed' : 'pointer',
+                            opacity: isDeleting ? 0.5 : 1,
                           }}
                         >
-                          Xóa
+                          {isDeleting ? 'Đang xóa...' : 'Xóa'}
                         </button>
                       </div>
                     </td>

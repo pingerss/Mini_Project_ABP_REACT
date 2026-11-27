@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { lmsService } from '../api/lmsService';
-import type{ CourseLearningDto, LessonWithProgressDto } from '../types/lms';
+import { Link, useParams } from 'react-router-dom';
+import { lmsService, toEmbedVideoUrl } from '../api/lmsService';
+import type { CourseLearningDto, LessonWithProgressDto } from '../types/lms';
 
 export const LessonPlayerPage: React.FC = () => {
   const { courseId } = useParams<{ courseId: string }>();
@@ -11,6 +11,7 @@ export const LessonPlayerPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isUpdatingProgress, setIsUpdatingProgress] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!courseId) return;
@@ -25,7 +26,7 @@ export const LessonPlayerPage: React.FC = () => {
       } catch (err: any) {
         setError(
           err.response?.data?.error?.message ||
-            'Không thể tải dữ liệu phòng học. Hãy chắc chắn bạn đã đăng ký khóa học này.'
+            'Không thể tải dữ liệu phòng học. Hãy chắc chắn bạn đã được gán khóa học này.'
         );
       } finally {
         setIsLoading(false);
@@ -34,22 +35,27 @@ export const LessonPlayerPage: React.FC = () => {
     loadLearningData();
   }, [courseId]);
 
-  const activeLesson: LessonWithProgressDto | undefined = learningData?.lessons.find(
-    (l) => l.lessonId === activeLessonId
-  );
+  const lessons = learningData?.lessons || [];
+  const activeIndex = lessons.findIndex((l) => l.lessonId === activeLessonId);
+  const activeLesson: LessonWithProgressDto | undefined =
+    activeIndex >= 0 ? lessons[activeIndex] : undefined;
+
+  const prevLesson = activeIndex > 0 ? lessons[activeIndex - 1] : null;
+  const nextLesson = activeIndex >= 0 && activeIndex < lessons.length - 1 ? lessons[activeIndex + 1] : null;
 
   const handleToggleComplete = async (lesson: LessonWithProgressDto) => {
     if (!courseId) return;
     try {
       setIsUpdatingProgress(true);
+      setFeedbackMsg(null);
       const updatedCourse = await lmsService.toggleLessonProgress(
         courseId,
         lesson.lessonId,
         !lesson.isCompleted
       );
       setLearningData(updatedCourse);
-    } catch (err) {
-      alert('Không thể cập nhật tiến độ bài học.');
+    } catch (err: any) {
+      setFeedbackMsg(err.response?.data?.error?.message || 'Không thể cập nhật tiến độ bài học.');
     } finally {
       setIsUpdatingProgress(false);
     }
@@ -58,8 +64,16 @@ export const LessonPlayerPage: React.FC = () => {
   if (isLoading) return <p style={{ padding: 24 }}>Đang mở phòng học...</p>;
   if (error || !learningData) return <p style={{ padding: 24, color: '#dc2626' }}>{error}</p>;
 
+  const embedUrl = activeLesson ? toEmbedVideoUrl(activeLesson.videoUrl) : '';
+
   return (
-    <div style={{ maxWidth: 1140, margin: '20px auto', padding: '0 16px' }}>
+    <div style={{ maxWidth: 1140, width: '100%', margin: '20px auto', padding: '0 20px' }}>
+      <div style={{ marginBottom: 12 }}>
+        <Link to="/" style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 600, fontSize: 14 }}>
+          ← Quay lại Khóa học của tôi
+        </Link>
+      </div>
+
       {/* Thanh tiêu đề khóa học & Thanh tiến độ (Progress Bar) */}
       <div
         style={{
@@ -71,10 +85,12 @@ export const LessonPlayerPage: React.FC = () => {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 16,
         }}
       >
         <div>
-          <h2 style={{ margin: 0 }}>{learningData.courseTitle}</h2>
+          <h2 style={{ margin: 0, color: '#ffffff' }}>{learningData.courseTitle}</h2>
           <p style={{ margin: '6px 0 0 0', fontSize: 14, color: '#cbd5e1' }}>
             Tiến độ hoàn thành: <b>{learningData.completedLessons}</b> / {learningData.totalLessons} bài học (
             {learningData.progressPercent}%)
@@ -94,17 +110,32 @@ export const LessonPlayerPage: React.FC = () => {
           </div>
           {learningData.status === 1 && (
             <div style={{ marginTop: 6, fontSize: 12, color: '#4ade80', textAlign: 'right', fontWeight: 600 }}>
-              🎉 Đã hoàn thành khóa học!
+              Đã hoàn thành khóa học!
             </div>
           )}
         </div>
       </div>
 
+      {feedbackMsg && (
+        <div
+          style={{
+            padding: 12,
+            marginBottom: 16,
+            backgroundColor: '#fef2f2',
+            color: '#dc2626',
+            borderRadius: 8,
+            fontSize: 14,
+          }}
+        >
+          {feedbackMsg}
+        </div>
+      )}
+
       {/* Bố cục 2 cột: Cột trái danh sách bài học - Cột phải nội dung bài giảng */}
       <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 24 }}>
         <div style={{ border: '1px solid #cbd5e1', borderRadius: 12, padding: 12, backgroundColor: '#f8fafc' }}>
           <h3 style={{ marginTop: 4, marginBottom: 12, paddingLeft: 8 }}>Danh sách bài giảng</h3>
-          {learningData.lessons.map((lesson) => {
+          {lessons.map((lesson) => {
             const isSelected = lesson.lessonId === activeLessonId;
             return (
               <div
@@ -120,12 +151,25 @@ export const LessonPlayerPage: React.FC = () => {
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
+                  gap: 8,
                 }}
               >
                 <span style={{ fontSize: 14, fontWeight: isSelected ? 700 : 500 }}>
                   {lesson.orderIndex}. {lesson.title}
                 </span>
-                <span style={{ fontSize: 16 }}>{lesson.isCompleted ? '✅' : '⬜'}</span>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: 999,
+                    backgroundColor: lesson.isCompleted ? '#dcfce7' : '#e2e8f0',
+                    color: lesson.isCompleted ? '#166534' : '#475569',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {lesson.isCompleted ? 'Hoàn thành' : 'Chưa học'}
+                </span>
               </div>
             );
           })}
@@ -134,7 +178,15 @@ export const LessonPlayerPage: React.FC = () => {
         <div style={{ border: '1px solid #cbd5e1', borderRadius: 12, padding: 24, backgroundColor: '#ffffff' }}>
           {activeLesson ? (
             <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 12,
+                }}
+              >
                 <h2 style={{ marginTop: 0, color: '#1e293b' }}>{activeLesson.title}</h2>
                 <button
                   onClick={() => handleToggleComplete(activeLesson)}
@@ -150,17 +202,17 @@ export const LessonPlayerPage: React.FC = () => {
                   }}
                 >
                   {activeLesson.isCompleted
-                    ? '✅ Đã hoàn thành (Bấm để bỏ đánh dấu)'
+                    ? 'Đã hoàn thành (Bấm để bỏ đánh dấu)'
                     : 'Đánh dấu hoàn thành bài này'}
                 </button>
               </div>
 
-              {activeLesson.videoUrl && (
+              {embedUrl && (
                 <div style={{ margin: '16px 0' }}>
                   <iframe
                     width="100%"
                     height="380"
-                    src={activeLesson.videoUrl}
+                    src={embedUrl}
                     title={activeLesson.title}
                     style={{ borderRadius: 8, border: '1px solid #cbd5e1' }}
                     allowFullScreen
@@ -178,8 +230,58 @@ export const LessonPlayerPage: React.FC = () => {
                   color: '#334155',
                 }}
               >
-                <h4>Nội dung chi tiết bài học:</h4>
-                <p>{activeLesson.content}</p>
+                <h4 style={{ marginTop: 0 }}>Nội dung chi tiết bài học:</h4>
+                <p style={{ marginBottom: 0, whiteSpace: 'pre-line' }}>{activeLesson.content}</p>
+              </div>
+
+              {/* Thanh điều hướng Bài trước / Bài tiếp theo */}
+              <div
+                style={{
+                  marginTop: 22,
+                  paddingTop: 16,
+                  borderTop: '1px solid #e2e8f0',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <button
+                  onClick={() => prevLesson && setActiveLessonId(prevLesson.lessonId)}
+                  disabled={!prevLesson}
+                  style={{
+                    padding: '9px 16px',
+                    borderRadius: 8,
+                    border: '1px solid #cbd5e1',
+                    backgroundColor: '#ffffff',
+                    color: '#334155',
+                    fontWeight: 600,
+                    cursor: prevLesson ? 'pointer' : 'not-allowed',
+                    opacity: prevLesson ? 1 : 0.4,
+                  }}
+                >
+                  ← Bài trước
+                </button>
+
+                <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>
+                  Bài {activeIndex + 1} / {lessons.length}
+                </span>
+
+                <button
+                  onClick={() => nextLesson && setActiveLessonId(nextLesson.lessonId)}
+                  disabled={!nextLesson}
+                  style={{
+                    padding: '9px 16px',
+                    borderRadius: 8,
+                    border: 'none',
+                    backgroundColor: '#1e40af',
+                    color: '#ffffff',
+                    fontWeight: 600,
+                    cursor: nextLesson ? 'pointer' : 'not-allowed',
+                    opacity: nextLesson ? 1 : 0.4,
+                  }}
+                >
+                  Bài tiếp theo →
+                </button>
               </div>
             </>
           ) : (

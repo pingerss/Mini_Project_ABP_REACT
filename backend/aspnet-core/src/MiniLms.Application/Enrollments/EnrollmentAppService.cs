@@ -87,7 +87,14 @@ public class EnrollmentAppService : ApplicationService, IEnrollmentAppService
     public async Task<CourseLearningDto> GetLearningCourseAsync(Guid courseId)
     {
         var studentId = CurrentUser.GetId();
+        var isAdmin = CurrentUser.IsInRole("admin");
+        var isInstructor = CurrentUser.IsInRole("Instructor");
         var course = await _courseRepository.GetAsync(courseId);
+
+        if (!isAdmin && !isInstructor && course.Status != CourseStatus.Published)
+        {
+            throw new UserFriendlyException("Khóa học này hiện đang ở trạng thái Bản nháp hoặc Đã đóng.");
+        }
 
         var enrollment = await _enrollmentRepository.FirstOrDefaultAsync(
             x => x.CourseId == courseId && x.StudentId == studentId);

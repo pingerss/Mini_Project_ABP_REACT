@@ -1,16 +1,44 @@
 import axiosClient from './axiosClient';
 import type {
   AssignCoursesToStudentDto,
+  ChangeMyPasswordDto,
   CourseDto,
   CourseLearningDto,
   CreateStudentDto,
   CreateUpdateCourseDto,
   CreateUpdateLessonDto,
-  EnrollmentDto,
   LessonDto,
   RegisterInstructorDto,
+  ResetStudentPasswordDto,
   StudentAccountDto,
 } from '../types/lms';
+
+/**
+ * Tự động chuyển đổi mọi dạng link YouTube (watch?v=..., youtu.be/..., shorts/...)
+ * sang chuẩn https://www.youtube.com/embed/... để thẻ <iframe> không bị lỗi Refused to connect.
+ */
+export function toEmbedVideoUrl(rawUrl: string): string {
+  if (!rawUrl) return '';
+  const trimmed = rawUrl.trim();
+  try {
+    const url = new URL(trimmed);
+    if (url.hostname.includes('youtube.com')) {
+      const videoId = url.searchParams.get('v');
+      if (videoId) return `https://www.youtube.com/embed/${videoId}`;
+      if (url.pathname.startsWith('/shorts/')) {
+        const shortId = url.pathname.replace('/shorts/', '').split('/')[0];
+        if (shortId) return `https://www.youtube.com/embed/${shortId}`;
+      }
+    }
+    if (url.hostname === 'youtu.be') {
+      const videoId = url.pathname.slice(1).split('/')[0];
+      if (videoId) return `https://www.youtube.com/embed/${videoId}`;
+    }
+  } catch {
+    // Nếu không phải URL tuyệt đối thì giữ nguyên
+  }
+  return trimmed;
+}
 
 export const lmsService = {
   // === LUỒNG HỌC VIÊN ===
@@ -21,11 +49,6 @@ export const lmsService = {
 
   async getCourseById(courseId: string): Promise<CourseDto> {
     const response = await axiosClient.get<CourseDto>(`/api/app/course/${courseId}`);
-    return response.data;
-  },
-
-  async enrollCourse(courseId: string): Promise<EnrollmentDto> {
-    const response = await axiosClient.post<EnrollmentDto>(`/api/app/enrollment/enroll/${courseId}`);
     return response.data;
   },
 
@@ -69,12 +92,14 @@ export const lmsService = {
   },
 
   async addLesson(input: CreateUpdateLessonDto): Promise<LessonDto> {
-    const response = await axiosClient.post<LessonDto>('/api/app/course/lesson', input);
+    const payload = { ...input, videoUrl: toEmbedVideoUrl(input.videoUrl) };
+    const response = await axiosClient.post<LessonDto>('/api/app/course/lesson', payload);
     return response.data;
   },
 
   async updateLesson(lessonId: string, input: CreateUpdateLessonDto): Promise<LessonDto> {
-    const response = await axiosClient.put<LessonDto>(`/api/app/course/lesson/${lessonId}`, input);
+    const payload = { ...input, videoUrl: toEmbedVideoUrl(input.videoUrl) };
+    const response = await axiosClient.put<LessonDto>(`/api/app/course/lesson/${lessonId}`, payload);
     return response.data;
   },
 
@@ -82,7 +107,7 @@ export const lmsService = {
     await axiosClient.delete(`/api/app/course/lesson/${lessonId}`);
   },
 
-  // === LUỒNG ĐĂNG KÝ GIẢNG VIÊN & CẤP TÀI KHOẢN HỌC VIÊN ===
+  // === LUỒNG ĐĂNG KÝ GIẢNG VIÊN, QUẢN LÝ HỌC VIÊN & ĐỔI MẬT KHẨU ===
   async registerInstructor(input: RegisterInstructorDto): Promise<void> {
     await axiosClient.post('/api/app/account-management/register-instructor', input);
   },
@@ -108,5 +133,17 @@ export const lmsService = {
       input
     );
     return response.data;
+  },
+
+  async resetStudentPassword(input: ResetStudentPasswordDto): Promise<void> {
+    await axiosClient.post('/api/app/account-management/reset-student-password', input);
+  },
+
+  async deleteStudent(studentId: string): Promise<void> {
+    await axiosClient.delete(`/api/app/account-management/student/${studentId}`);
+  },
+
+  async changeMyPassword(input: ChangeMyPasswordDto): Promise<void> {
+    await axiosClient.post('/api/app/account-management/change-my-password', input);
   },
 };

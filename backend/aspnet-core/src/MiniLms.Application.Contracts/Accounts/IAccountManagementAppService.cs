@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using MiniLms.Accounts.Dtos;
@@ -11,4 +12,7 @@ public interface IAccountManagementAppService : IApplicationService
     Task<StudentAccountDto> CreateStudentAsync(CreateStudentDto input);
     Task<List<StudentAccountDto>> GetStudentsAsync();
     Task<StudentAccountDto> AssignCoursesAsync(AssignCoursesToStudentDto input);
+    Task ResetStudentPasswordAsync(ResetStudentPasswordDto input);
+    Task DeleteStudentAsync(Guid studentId);
+    Task ChangeMyPasswordAsync(ChangeMyPasswordDto input);
 }

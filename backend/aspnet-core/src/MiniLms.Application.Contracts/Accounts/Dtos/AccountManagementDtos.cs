@@ -60,6 +60,26 @@ public class AssignCoursesToStudentDto
     public List<Guid> CourseIds { get; set; } = new();
 }
 
+public class ResetStudentPasswordDto
+{
+    [Required]
+    public Guid StudentId { get; set; }
+
+    [Required]
+    [StringLength(128, MinimumLength = 6)]
+    public string NewPassword { get; set; } = string.Empty;
+}
+
+public class ChangeMyPasswordDto
+{
+    [Required]
+    public string CurrentPassword { get; set; } = string.Empty;
+
+    [Required]
+    [StringLength(128, MinimumLength = 6)]
+    public string NewPassword { get; set; } = string.Empty;
+}
+
 public class StudentEnrolledCourseItemDto
 {
     public Guid CourseId { get; set; }

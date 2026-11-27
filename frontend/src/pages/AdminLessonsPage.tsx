@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { lmsService } from '../api/lmsService';
+import { lmsService, toEmbedVideoUrl } from '../api/lmsService';
 import type { CourseDto, CreateUpdateLessonDto, LessonDto } from '../types/lms';
 
 export const AdminLessonsPage: React.FC = () => {
@@ -9,6 +9,7 @@ export const AdminLessonsPage: React.FC = () => {
   const [course, setCourse] = useState<CourseDto | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Form Thêm / Sửa bài học
   const [showForm, setShowForm] = useState(false);
@@ -21,6 +22,8 @@ export const AdminLessonsPage: React.FC = () => {
     orderIndex: 1,
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [isReordering, setIsReordering] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const loadCourseDetail = async () => {
     if (!courseId) return;
@@ -50,6 +53,7 @@ export const AdminLessonsPage: React.FC = () => {
       content: '',
       orderIndex: nextOrder,
     });
+    setFeedback(null);
     setShowForm(true);
   };
 
@@ -62,6 +66,7 @@ export const AdminLessonsPage: React.FC = () => {
       content: lesson.content,
       orderIndex: lesson.orderIndex,
     });
+    setFeedback(null);
     setShowForm(true);
   };
 
@@ -69,15 +74,25 @@ export const AdminLessonsPage: React.FC = () => {
     e.preventDefault();
     try {
       setIsSaving(true);
+      setFeedback(null);
+      const normalizedPayload = {
+        ...formData,
+        videoUrl: toEmbedVideoUrl(formData.videoUrl),
+      };
       if (editingLessonId) {
-        await lmsService.updateLesson(editingLessonId, formData);
+        await lmsService.updateLesson(editingLessonId, normalizedPayload);
+        setFeedback({ type: 'success', text: 'Đã cập nhật bài học thành công.' });
       } else {
-        await lmsService.addLesson(formData);
+        await lmsService.addLesson(normalizedPayload);
+        setFeedback({ type: 'success', text: 'Đã thêm bài học mới thành công.' });
       }
       setShowForm(false);
       await loadCourseDetail();
     } catch (err: any) {
-      alert(err.response?.data?.error?.message || 'Lưu bài học thất bại.');
+      setFeedback({
+        type: 'error',
+        text: err.response?.data?.error?.message || 'Lưu bài học thất bại.',
+      });
     } finally {
       setIsSaving(false);
     }
@@ -86,15 +101,23 @@ export const AdminLessonsPage: React.FC = () => {
   const handleDelete = async (lesson: LessonDto) => {
     if (!window.confirm(`Bạn có chắc muốn xóa bài học "${lesson.title}"?`)) return;
     try {
+      setDeletingId(lesson.id);
+      setFeedback(null);
       await lmsService.deleteLesson(lesson.id);
+      setFeedback({ type: 'success', text: `Đã xóa bài học "${lesson.title}".` });
       await loadCourseDetail();
     } catch (err: any) {
-      alert(err.response?.data?.error?.message || 'Xóa bài học thất bại.');
+      setFeedback({
+        type: 'error',
+        text: err.response?.data?.error?.message || 'Xóa bài học thất bại.',
+      });
+    } finally {
+      setDeletingId(null);
     }
   };
 
   const handleSwapOrder = async (index: number, direction: -1 | 1) => {
-    if (!course) return;
+    if (!course || isReordering) return;
     const targetIndex = index + direction;
     if (targetIndex < 0 || targetIndex >= course.lessons.length) return;
 
@@ -102,6 +125,8 @@ export const AdminLessonsPage: React.FC = () => {
     const neighbor = course.lessons[targetIndex];
 
     try {
+      setIsReordering(true);
+      setFeedback(null);
       await Promise.all([
         lmsService.updateLesson(current.id, {
           courseId: current.courseId,
@@ -119,8 +144,10 @@ export const AdminLessonsPage: React.FC = () => {
         }),
       ]);
       await loadCourseDetail();
-    } catch (err: any) {
-      alert('Không thể đổi thứ tự bài học.');
+    } catch {
+      setFeedback({ type: 'error', text: 'Không thể đổi thứ tự bài học.' });
+    } finally {
+      setIsReordering(false);
     }
   };
 
@@ -141,7 +168,7 @@ export const AdminLessonsPage: React.FC = () => {
           backgroundColor: '#ffffff',
           borderRadius: 12,
           border: '1px solid #e2e8f0',
-          marginBottom: 24,
+          marginBottom: 20,
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
@@ -175,6 +202,23 @@ export const AdminLessonsPage: React.FC = () => {
           + Thêm bài học mới
         </button>
       </div>
+
+      {feedback && (
+        <div
+          style={{
+            padding: '12px 16px',
+            marginBottom: 18,
+            borderRadius: 8,
+            backgroundColor: feedback.type === 'success' ? '#ecfdf5' : '#fef2f2',
+            color: feedback.type === 'success' ? '#065f46' : '#dc2626',
+            border: `1px solid ${feedback.type === 'success' ? '#a7f3d0' : '#fecaca'}`,
+            fontWeight: 500,
+            fontSize: 14,
+          }}
+        >
+          {feedback.text}
+        </div>
+      )}
 
       {/* Form Thêm / Sửa Bài học */}
       {showForm && (
@@ -225,13 +269,13 @@ export const AdminLessonsPage: React.FC = () => {
 
           <div style={{ marginBottom: 14 }}>
             <label style={{ display: 'block', fontWeight: 600, marginBottom: 6, fontSize: 14 }}>
-              Link Video Embed (YouTube / MP4)
+              Link Video YouTube (Có thể dán link YouTube thường hoặc link Embed)
             </label>
             <input
               type="text"
               value={formData.videoUrl}
               onChange={(e) => setFormData({ ...formData, videoUrl: e.target.value })}
-              placeholder="https://www.youtube.com/embed/..."
+              placeholder="https://www.youtube.com/watch?v=... hoặc https://www.youtube.com/embed/..."
               style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #cbd5e1' }}
             />
           </div>
@@ -291,107 +335,112 @@ export const AdminLessonsPage: React.FC = () => {
             Khóa học này chưa có bài học nào. Hãy bấm <b>"+ Thêm bài học mới"</b>.
           </div>
         ) : (
-          course.lessons.map((lesson, idx) => (
-            <div
-              key={lesson.id}
-              style={{
-                padding: 18,
-                backgroundColor: '#ffffff',
-                borderRadius: 10,
-                border: '1px solid #e2e8f0',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: 16,
-                flexWrap: 'wrap',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1 }}>
-                <span
-                  style={{
-                    minWidth: 32,
-                    height: 32,
-                    borderRadius: 999,
-                    backgroundColor: '#eff6ff',
-                    color: '#1d4ed8',
-                    fontWeight: 700,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  {lesson.orderIndex}
-                </span>
-                <div>
-                  <div style={{ fontWeight: 600, color: '#0f172a' }}>{lesson.title}</div>
-                  <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>{lesson.content}</div>
+          course.lessons.map((lesson, idx) => {
+            const isDeleting = deletingId === lesson.id;
+            return (
+              <div
+                key={lesson.id}
+                style={{
+                  padding: 18,
+                  backgroundColor: '#ffffff',
+                  borderRadius: 10,
+                  border: '1px solid #e2e8f0',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 16,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1 }}>
+                  <span
+                    style={{
+                      minWidth: 32,
+                      height: 32,
+                      borderRadius: 999,
+                      backgroundColor: '#eff6ff',
+                      color: '#1d4ed8',
+                      fontWeight: 700,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    {lesson.orderIndex}
+                  </span>
+                  <div>
+                    <div style={{ fontWeight: 600, color: '#0f172a' }}>{lesson.title}</div>
+                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>{lesson.content}</div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button
+                    onClick={() => handleSwapOrder(idx, -1)}
+                    disabled={idx === 0 || isReordering}
+                    title="Đưa lên trên"
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: 6,
+                      border: '1px solid #cbd5e1',
+                      backgroundColor: '#ffffff',
+                      cursor: idx === 0 || isReordering ? 'not-allowed' : 'pointer',
+                      opacity: idx === 0 || isReordering ? 0.4 : 1,
+                    }}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    onClick={() => handleSwapOrder(idx, 1)}
+                    disabled={idx === course.lessons.length - 1 || isReordering}
+                    title="Đưa xuống dưới"
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: 6,
+                      border: '1px solid #cbd5e1',
+                      backgroundColor: '#ffffff',
+                      cursor: idx === course.lessons.length - 1 || isReordering ? 'not-allowed' : 'pointer',
+                      opacity: idx === course.lessons.length - 1 || isReordering ? 0.4 : 1,
+                    }}
+                  >
+                    ↓
+                  </button>
+                  <button
+                    onClick={() => openEditForm(lesson)}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: 6,
+                      border: '1px solid #cbd5e1',
+                      backgroundColor: '#ffffff',
+                      color: '#334155',
+                      fontWeight: 600,
+                      fontSize: 13,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Sửa
+                  </button>
+                  <button
+                    onClick={() => handleDelete(lesson)}
+                    disabled={isDeleting}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: 6,
+                      border: 'none',
+                      backgroundColor: '#fee2e2',
+                      color: '#b91c1c',
+                      fontWeight: 600,
+                      fontSize: 13,
+                      cursor: isDeleting ? 'not-allowed' : 'pointer',
+                      opacity: isDeleting ? 0.5 : 1,
+                    }}
+                  >
+                    {isDeleting ? 'Đang xóa...' : 'Xóa'}
+                  </button>
                 </div>
               </div>
-
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <button
-                  onClick={() => handleSwapOrder(idx, -1)}
-                  disabled={idx === 0}
-                  title="Đưa lên trên"
-                  style={{
-                    padding: '6px 10px',
-                    borderRadius: 6,
-                    border: '1px solid #cbd5e1',
-                    backgroundColor: '#ffffff',
-                    cursor: idx === 0 ? 'not-allowed' : 'pointer',
-                    opacity: idx === 0 ? 0.4 : 1,
-                  }}
-                >
-                  ↑
-                </button>
-                <button
-                  onClick={() => handleSwapOrder(idx, 1)}
-                  disabled={idx === course.lessons.length - 1}
-                  title="Đưa xuống dưới"
-                  style={{
-                    padding: '6px 10px',
-                    borderRadius: 6,
-                    border: '1px solid #cbd5e1',
-                    backgroundColor: '#ffffff',
-                    cursor: idx === course.lessons.length - 1 ? 'not-allowed' : 'pointer',
-                    opacity: idx === course.lessons.length - 1 ? 0.4 : 1,
-                  }}
-                >
-                  ↓
-                </button>
-                <button
-                  onClick={() => openEditForm(lesson)}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: 6,
-                    border: '1px solid #cbd5e1',
-                    backgroundColor: '#ffffff',
-                    color: '#334155',
-                    fontWeight: 600,
-                    fontSize: 13,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Sửa
-                </button>
-                <button
-                  onClick={() => handleDelete(lesson)}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: 6,
-                    border: 'none',
-                    backgroundColor: '#fee2e2',
-                    color: '#b91c1c',
-                    fontWeight: 600,
-                    fontSize: 13,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Xóa
-                </button>
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>

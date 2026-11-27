@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using MiniLms.Enrollments;
 using Volo.Abp.Application.Dtos;
 
 namespace MiniLms.Courses.Dtos;
@@ -16,6 +17,9 @@ public class CourseDto : EntityDto<Guid>
 
     // Thông tin tổng hợp phục vụ trực tiếp cho giao diện React
     public int TotalLessons { get; set; }
+    public int CompletedLessons { get; set; }
+    public int ProgressPercent { get; set; }
+    public EnrollmentStatus? EnrollmentStatus { get; set; }
     public bool IsEnrolled { get; set; }
     public Guid? EnrollmentId { get; set; }
     public List<LessonDto> Lessons { get; set; } = new();

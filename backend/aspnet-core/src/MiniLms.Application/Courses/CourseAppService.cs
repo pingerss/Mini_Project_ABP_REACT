@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using MiniLms.Courses.Dtos;
 using MiniLms.Enrollments;
+using Volo.Abp;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Authorization;
 using Volo.Abp.Domain.Repositories;
@@ -15,7 +16,6 @@ namespace MiniLms.Courses;
 
 /// <summary>
 /// Quản lý Khóa học & Bài học.
-/// WHY: Khi kế thừa ApplicationService, ABP tự động biến các hàm public trong class này thành RESTful API!
 /// </summary>
 [Authorize]
 public class CourseAppService : ApplicationService, ICourseAppService
@@ -23,23 +23,26 @@ public class CourseAppService : ApplicationService, ICourseAppService
     private readonly IRepository<Course, Guid> _courseRepository;
     private readonly IRepository<Lesson, Guid> _lessonRepository;
     private readonly IRepository<Enrollment, Guid> _enrollmentRepository;
+    private readonly IRepository<LessonProgress, Guid> _progressRepository;
     private readonly IRepository<IdentityUser, Guid> _userRepository;
 
     public CourseAppService(
         IRepository<Course, Guid> courseRepository,
         IRepository<Lesson, Guid> lessonRepository,
         IRepository<Enrollment, Guid> enrollmentRepository,
+        IRepository<LessonProgress, Guid> progressRepository,
         IRepository<IdentityUser, Guid> userRepository)
     {
         _courseRepository = courseRepository;
         _lessonRepository = lessonRepository;
         _enrollmentRepository = enrollmentRepository;
+        _progressRepository = progressRepository;
         _userRepository = userRepository;
     }
 
     // Tự động sinh API: GET /api/app/course
-    // - Học viên: CHỈ thấy các khóa học mà Giảng viên đã gán (Enroll) cho học viên đó + Tên Giảng viên.
-    // - Giảng viên: chỉ thấy các khóa học do chính mình tạo.
+    // - Học viên: CHỈ thấy các khóa học Published mà Giảng viên đã gán cho học viên đó + % Tiến độ + Tên Giảng viên.
+    // - Giảng viên: thấy các khóa học do chính mình tạo.
     // - Admin: thấy tất cả khóa học.
     public async Task<List<CourseDto>> GetListAsync()
     {
@@ -61,12 +64,23 @@ public class CourseAppService : ApplicationService, ICourseAppService
         else
         {
             var enrolledCourseIds = myEnrollments.Select(e => e.CourseId).Distinct().ToList();
+            // Học viên chỉ nhìn thấy khóa học đã được gán VÀ đang ở trạng thái Published
             courses = enrolledCourseIds.Count > 0
-                ? await _courseRepository.GetListAsync(x => enrolledCourseIds.Contains(x.Id))
+                ? await _courseRepository.GetListAsync(
+                    x => enrolledCourseIds.Contains(x.Id) && x.Status == CourseStatus.Published)
                 : new List<Course>();
         }
 
-        var lessons = await _lessonRepository.GetListAsync();
+        var courseIds = courses.Select(c => c.Id).ToList();
+        var lessons = courseIds.Count > 0
+            ? await _lessonRepository.GetListAsync(l => courseIds.Contains(l.CourseId))
+            : new List<Lesson>();
+
+        var myEnrollmentIds = myEnrollments.Select(e => e.Id).ToList();
+        var myProgresses = myEnrollmentIds.Count > 0
+            ? await _progressRepository.GetListAsync(p => myEnrollmentIds.Contains(p.EnrollmentId) && p.IsCompleted)
+            : new List<LessonProgress>();
+
         var instructorIds = courses.Select(c => c.InstructorId).Distinct().ToList();
         var instructors = instructorIds.Count > 0
             ? await _userRepository.GetListAsync(u => instructorIds.Contains(u.Id))
@@ -78,6 +92,14 @@ public class CourseAppService : ApplicationService, ICourseAppService
             {
                 var enrollment = myEnrollments.FirstOrDefault(e => e.CourseId == c.Id);
                 var instructor = instructors.FirstOrDefault(u => u.Id == c.InstructorId);
+                var totalLessons = lessons.Count(l => l.CourseId == c.Id);
+                var completedLessons = enrollment != null
+                    ? myProgresses.Count(p => p.EnrollmentId == enrollment.Id)
+                    : 0;
+                var percent = totalLessons > 0
+                    ? (int)Math.Round((double)completedLessons * 100 / totalLessons)
+                    : 0;
+
                 return new CourseDto
                 {
                     Id = c.Id,
@@ -87,7 +109,10 @@ public class CourseAppService : ApplicationService, ICourseAppService
                     InstructorName = instructor?.UserName ?? "Giảng viên",
                     Status = c.Status,
                     CreationTime = c.CreationTime,
-                    TotalLessons = lessons.Count(l => l.CourseId == c.Id),
+                    TotalLessons = totalLessons,
+                    CompletedLessons = completedLessons,
+                    ProgressPercent = percent,
+                    EnrollmentStatus = enrollment?.Status,
                     IsEnrolled = enrollment != null,
                     EnrollmentId = enrollment?.Id
                 };
@@ -112,14 +137,27 @@ public class CourseAppService : ApplicationService, ICourseAppService
             {
                 throw new AbpAuthorizationException("Bạn chỉ được xem khóa học do chính mình quản lý.");
             }
-            if (!isInstructor && enrollment == null)
+            if (!isInstructor)
             {
-                throw new AbpAuthorizationException("Bạn chưa được Giảng viên gán vào khóa học này.");
+                if (enrollment == null)
+                {
+                    throw new AbpAuthorizationException("Bạn chưa được Giảng viên gán vào khóa học này.");
+                }
+                if (course.Status != CourseStatus.Published)
+                {
+                    throw new UserFriendlyException("Khóa học này hiện đang ở trạng thái Bản nháp hoặc Đã đóng.");
+                }
             }
         }
 
         var lessons = await _lessonRepository.GetListAsync(x => x.CourseId == id);
         var instructor = await _userRepository.FindAsync(course.InstructorId);
+        var completedLessons = enrollment != null
+            ? await _progressRepository.CountAsync(p => p.EnrollmentId == enrollment.Id && p.IsCompleted)
+            : 0;
+        var percent = lessons.Count > 0
+            ? (int)Math.Round((double)completedLessons * 100 / lessons.Count)
+            : 0;
 
         return new CourseDto
         {
@@ -131,25 +169,19 @@ public class CourseAppService : ApplicationService, ICourseAppService
             Status = course.Status,
             CreationTime = course.CreationTime,
             TotalLessons = lessons.Count,
+            CompletedLessons = completedLessons,
+            ProgressPercent = percent,
+            EnrollmentStatus = enrollment?.Status,
             IsEnrolled = enrollment != null,
             EnrollmentId = enrollment?.Id,
             Lessons = lessons
                 .OrderBy(l => l.OrderIndex)
-                .Select(l => new LessonDto
-                {
-                    Id = l.Id,
-                    CourseId = l.CourseId,
-                    Title = l.Title,
-                    VideoUrl = l.VideoUrl,
-                    Content = l.Content,
-                    OrderIndex = l.OrderIndex
-                })
+                .Select(MapLessonToDto)
                 .ToList()
         };
     }
 
     // Tự động sinh API: GET /api/app/course/manage-list
-    // Trả toàn bộ khóa học (kể cả Draft / Archived) cho màn hình Quản trị của Admin / Giảng viên
     [Authorize]
     public async Task<List<CourseDto>> GetManageListAsync()
     {
@@ -162,19 +194,32 @@ public class CourseAppService : ApplicationService, ICourseAppService
             ? await _courseRepository.GetListAsync()
             : await _courseRepository.GetListAsync(x => x.InstructorId == currentUserId);
 
-        var lessons = await _lessonRepository.GetListAsync();
+        var courseIds = courses.Select(c => c.Id).ToList();
+        var lessons = courseIds.Count > 0
+            ? await _lessonRepository.GetListAsync(l => courseIds.Contains(l.CourseId))
+            : new List<Lesson>();
+
+        var instructorIds = courses.Select(c => c.InstructorId).Distinct().ToList();
+        var instructors = instructorIds.Count > 0
+            ? await _userRepository.GetListAsync(u => instructorIds.Contains(u.Id))
+            : new List<IdentityUser>();
 
         return courses
             .OrderByDescending(c => c.CreationTime)
-            .Select(c => new CourseDto
+            .Select(c =>
             {
-                Id = c.Id,
-                Title = c.Title,
-                Description = c.Description,
-                InstructorId = c.InstructorId,
-                Status = c.Status,
-                CreationTime = c.CreationTime,
-                TotalLessons = lessons.Count(l => l.CourseId == c.Id)
+                var instructor = instructors.FirstOrDefault(u => u.Id == c.InstructorId);
+                return new CourseDto
+                {
+                    Id = c.Id,
+                    Title = c.Title,
+                    Description = c.Description,
+                    InstructorId = c.InstructorId,
+                    InstructorName = instructor?.UserName ?? "Giảng viên",
+                    Status = c.Status,
+                    CreationTime = c.CreationTime,
+                    TotalLessons = lessons.Count(l => l.CourseId == c.Id)
+                };
             })
             .ToList();
     }
@@ -185,7 +230,6 @@ public class CourseAppService : ApplicationService, ICourseAppService
     {
         EnsureInstructorOrAdmin();
 
-        // WHY: Lấy Id của người đang đăng nhập từ JWT Token qua CurrentUser.GetId()
         var instructorId = CurrentUser.GetId();
 
         var course = new Course(
@@ -240,6 +284,7 @@ public class CourseAppService : ApplicationService, ICourseAppService
         );
 
         await _lessonRepository.InsertAsync(lesson, autoSave: true);
+        await RecalculateCourseEnrollmentsStatusAsync(course.Id);
 
         return MapLessonToDto(lesson);
     }
@@ -266,7 +311,31 @@ public class CourseAppService : ApplicationService, ICourseAppService
         var course = await _courseRepository.GetAsync(lesson.CourseId);
         EnsureInstructorOrAdmin(course.InstructorId);
 
+        // Xóa tiến độ của bài học này trước rồi xóa bài học
+        var lessonProgresses = await _progressRepository.GetListAsync(p => p.LessonId == lessonId);
+        foreach (var prog in lessonProgresses)
+        {
+            await _progressRepository.DeleteAsync(prog, autoSave: true);
+        }
+
         await _lessonRepository.DeleteAsync(lesson, autoSave: true);
+        await RecalculateCourseEnrollmentsStatusAsync(course.Id);
+    }
+
+    /// <summary>
+    /// Khi Giảng viên Thêm hoặc Xóa bài học, tính toán lại trạng thái Completed/Active cho các học viên đang học khóa này.
+    /// </summary>
+    private async Task RecalculateCourseEnrollmentsStatusAsync(Guid courseId)
+    {
+        var totalLessons = await _lessonRepository.CountAsync(x => x.CourseId == courseId);
+        var enrollments = await _enrollmentRepository.GetListAsync(x => x.CourseId == courseId);
+
+        foreach (var enrollment in enrollments)
+        {
+            await _enrollmentRepository.EnsureCollectionLoadedAsync(enrollment, x => x.LessonProgresses);
+            enrollment.RecalculateCompletionStatus(totalLessons);
+            await _enrollmentRepository.UpdateAsync(enrollment, autoSave: true);
+        }
     }
 
     private void EnsureInstructorOrAdmin(Guid? ownerInstructorId = null)

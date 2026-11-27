@@ -180,14 +180,94 @@ public class AccountManagementAppService : ApplicationService, IAccountManagemen
             ? await _courseRepository.GetListAsync()
             : await _courseRepository.GetListAsync(c => c.InstructorId == currentUserId);
 
-        var lessons = await _lessonRepository.GetListAsync();
-        var enrollments = await _enrollmentRepository.GetListAsync();
-        var progresses = await _progressRepository.GetListAsync();
+        var visibleStudentIds = visibleStudents.Select(s => s.Id).ToList();
+        var courseIds = courses.Select(c => c.Id).ToList();
+
+        // Tối ưu truy vấn SQL: chỉ tải dữ liệu liên quan tới danh sách học viên & khóa học hiện tại
+        var lessons = courseIds.Count > 0
+            ? await _lessonRepository.GetListAsync(l => courseIds.Contains(l.CourseId))
+            : new List<Lesson>();
+
+        var enrollments = (visibleStudentIds.Count > 0 && courseIds.Count > 0)
+            ? await _enrollmentRepository.GetListAsync(
+                e => visibleStudentIds.Contains(e.StudentId) && courseIds.Contains(e.CourseId))
+            : new List<Enrollment>();
+
+        var enrollmentIds = enrollments.Select(e => e.Id).ToList();
+        var progresses = enrollmentIds.Count > 0
+            ? await _progressRepository.GetListAsync(p => enrollmentIds.Contains(p.EnrollmentId))
+            : new List<LessonProgress>();
 
         return visibleStudents
             .OrderByDescending(s => s.CreationTime)
             .Select(s => MapStudentToDto(s, courses, lessons, enrollments, progresses))
             .ToList();
+    }
+
+    /// <summary>
+    /// API: POST /api/app/account-management/reset-student-password
+    /// Giảng viên / Admin cấp lại mật khẩu mới cho Học viên khi học viên quên mật khẩu.
+    /// </summary>
+    [Authorize]
+    public async Task ResetStudentPasswordAsync(ResetStudentPasswordDto input)
+    {
+        EnsureInstructorOrAdmin();
+
+        var isAdmin = CurrentUser.IsInRole("admin");
+        var currentUserId = CurrentUser.GetId();
+        var student = await _userManager.GetByIdAsync(input.StudentId);
+
+        if (!isAdmin && student.CreatorId != currentUserId)
+        {
+            throw new AbpAuthorizationException("Bạn chỉ có thể đặt lại mật khẩu cho Học viên do chính mình tạo.");
+        }
+
+        var resetToken = await _userManager.GeneratePasswordResetTokenAsync(student);
+        var result = await _userManager.ResetPasswordAsync(student, resetToken, input.NewPassword);
+        CheckIdentityResult(result);
+    }
+
+    /// <summary>
+    /// API: DELETE /api/app/account-management/student/{studentId}
+    /// Giảng viên / Admin xóa tài khoản Học viên và toàn bộ lượt đăng ký học của học viên đó.
+    /// </summary>
+    [Authorize]
+    public async Task DeleteStudentAsync(Guid studentId)
+    {
+        EnsureInstructorOrAdmin();
+
+        var isAdmin = CurrentUser.IsInRole("admin");
+        var currentUserId = CurrentUser.GetId();
+        var student = await _userManager.GetByIdAsync(studentId);
+
+        if (!isAdmin && student.CreatorId != currentUserId)
+        {
+            throw new AbpAuthorizationException("Bạn chỉ có thể xóa tài khoản Học viên do chính mình tạo.");
+        }
+
+        using (DataFilter.Disable<ISoftDelete>())
+        {
+            var studentEnrollments = await _enrollmentRepository.GetListAsync(e => e.StudentId == studentId);
+            foreach (var enrollment in studentEnrollments)
+            {
+                await _enrollmentRepository.HardDeleteAsync(enrollment, autoSave: true);
+            }
+        }
+
+        var result = await _userManager.DeleteAsync(student);
+        CheckIdentityResult(result);
+    }
+
+    /// <summary>
+    /// API: POST /api/app/account-management/change-my-password
+    /// Người dùng đang đăng nhập (Học viên / Giảng viên / Admin) tự đổi mật khẩu cá nhân.
+    /// </summary>
+    [Authorize]
+    public async Task ChangeMyPasswordAsync(ChangeMyPasswordDto input)
+    {
+        var user = await _userManager.GetByIdAsync(CurrentUser.GetId());
+        var result = await _userManager.ChangePasswordAsync(user, input.CurrentPassword, input.NewPassword);
+        CheckIdentityResult(result);
     }
 
     private async Task SyncStudentCoursesInternalAsync(Guid studentId, List<Guid> courseIds)
