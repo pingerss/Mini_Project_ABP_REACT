@@ -1,2 +1,5 @@
 Huong_Dan_Lap_Trinh_Mini_LMS_Fullstack_ABP_React.*
 Huong_Dan_Lap_Trinh_Mini_LMS_Fullstack_ABP_React.*
+backend/MiniLms.db
+backend/aspnet-core/Logs/
+*.pdf
