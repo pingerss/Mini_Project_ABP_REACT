@@ -3,6 +3,8 @@ import { Link, useParams } from 'react-router-dom';
 import { lmsService, toEmbedVideoUrl } from '../api/lmsService';
 import type {
   CourseLearningDto,
+  LessonMaterialDto,
+  LessonSubmissionDto,
   LessonWithProgressDto,
   QuizSubmitResultDto,
   StudentQuizPaperDto,
@@ -24,6 +26,15 @@ export const LessonPlayerPage: React.FC = () => {
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({});
   const [isSubmittingQuiz, setIsSubmittingQuiz] = useState<boolean>(false);
   const [quizResult, setQuizResult] = useState<QuizSubmitResultDto | null>(null);
+
+  // State Tài liệu đính kèm & Bài tập nộp của Học viên
+  const [materials, setMaterials] = useState<LessonMaterialDto[]>([]);
+  const [mySubmission, setMySubmission] = useState<LessonSubmissionDto | null>(null);
+  const [submissionUrl, setSubmissionUrl] = useState<string>('');
+  const [submissionNote, setSubmissionNote] = useState<string>('');
+  const [isUploadingSubmissionFile, setIsUploadingSubmissionFile] = useState<boolean>(false);
+  const [isSubmittingAssignment, setIsSubmittingAssignment] = useState<boolean>(false);
+  const [assignmentSuccessMsg, setAssignmentSuccessMsg] = useState<string | null>(null);
 
   const loadLearningData = async (preserveActiveId?: string | null) => {
     if (!courseId) return;
@@ -50,24 +61,33 @@ export const LessonPlayerPage: React.FC = () => {
     loadLearningData();
   }, [courseId]);
 
-  // Mỗi khi chuyển sang bài học khác, tự động tải đề Quiz của bài học đó
+  // Mỗi khi chuyển sang bài học khác, tự động tải đề Quiz, Tài liệu đính kèm và Bài nộp của bài học đó
   useEffect(() => {
     if (!activeLessonId) return;
-    const fetchQuiz = async () => {
+    const fetchLessonExtras = async () => {
       try {
         setIsLoadingQuiz(true);
         setQuizResult(null);
         setSelectedAnswers({});
         setFeedbackMsg(null);
-        const paper = await lmsService.getStudentQuiz(activeLessonId);
+        setAssignmentSuccessMsg(null);
+
+        const [paper, matList, sub] = await Promise.all([
+          lmsService.getStudentQuiz(activeLessonId).catch(() => null),
+          lmsService.getLessonMaterials(activeLessonId).catch(() => []),
+          lmsService.getMySubmission(activeLessonId).catch(() => null),
+        ]);
+
         setQuizPaper(paper);
-      } catch {
-        setQuizPaper(null);
+        setMaterials(matList);
+        setMySubmission(sub);
+        setSubmissionUrl(sub?.submissionUrl || '');
+        setSubmissionNote(sub?.note || '');
       } finally {
         setIsLoadingQuiz(false);
       }
     };
-    fetchQuiz();
+    fetchLessonExtras();
   }, [activeLessonId]);
 
   const lessons = learningData?.lessons || [];
@@ -125,7 +145,6 @@ export const LessonPlayerPage: React.FC = () => {
       });
       setQuizResult(result);
 
-      // Tải lại thông tin đề Quiz & tiến độ khóa học nếu đã vượt qua bài kiểm tra
       const [updatedPaper, updatedCourse] = await Promise.all([
         lmsService.getStudentQuiz(activeLessonId),
         lmsService.getLearningCourse(courseId),
@@ -143,6 +162,46 @@ export const LessonPlayerPage: React.FC = () => {
     setQuizResult(null);
     setSelectedAnswers({});
     setFeedbackMsg(null);
+  };
+
+  // Xử lý Học viên chọn file bài tập từ máy tính
+  const handleUploadSubmissionFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setIsUploadingSubmissionFile(true);
+      setFeedbackMsg(null);
+      const uploaded = await lmsService.uploadFile(file);
+      setSubmissionUrl(uploaded.fileUrl);
+      setAssignmentSuccessMsg(`Đã tải file "${uploaded.fileName}" lên. Hãy bấm "Nộp bài tập" để lưu.`);
+    } catch (err: any) {
+      setFeedbackMsg(err.response?.data?.error?.message || 'Tải file bài tập thất bại.');
+    } finally {
+      setIsUploadingSubmissionFile(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleSubmitAssignment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!courseId || !activeLessonId) return;
+    try {
+      setIsSubmittingAssignment(true);
+      setFeedbackMsg(null);
+      setAssignmentSuccessMsg(null);
+      const saved = await lmsService.submitAssignment({
+        courseId,
+        lessonId: activeLessonId,
+        submissionUrl,
+        note: submissionNote,
+      });
+      setMySubmission(saved);
+      setAssignmentSuccessMsg('Đã nộp bài tập thực hành thành công!');
+    } catch (err: any) {
+      setFeedbackMsg(err.response?.data?.error?.message || 'Không thể nộp bài tập.');
+    } finally {
+      setIsSubmittingAssignment(false);
+    }
   };
 
   if (isLoading) return <p style={{ padding: 24 }}>Đang mở phòng học...</p>;
@@ -342,11 +401,77 @@ export const LessonPlayerPage: React.FC = () => {
                 <p style={{ marginBottom: 0, whiteSpace: 'pre-line' }}>{activeLesson.content}</p>
               </div>
 
-              {/* KHU VỰC BÀI KIỂM TRA TRẮC NGHIỆM CUỐI BÀI (QUIZ) */}
+              {/* KHU VỰC 1: TÀI LIỆU HỌC TẬP ĐÍNH KÈM CỦA BÀI GIẢNG */}
+              {materials.length > 0 && (
+                <div
+                  style={{
+                    marginTop: 20,
+                    padding: 18,
+                    borderRadius: 10,
+                    backgroundColor: '#f0fdf4',
+                    border: '1px solid #bbf7d0',
+                  }}
+                >
+                  <h4 style={{ margin: '0 0 10px 0', color: '#065f46' }}>
+                    Tài liệu học tập đính kèm ({materials.length})
+                  </h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {materials.map((m) => (
+                      <div
+                        key={m.id}
+                        style={{
+                          padding: '10px 14px',
+                          backgroundColor: '#ffffff',
+                          borderRadius: 8,
+                          border: '1px solid #dcfce7',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 10,
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span
+                            style={{
+                              padding: '2px 8px',
+                              borderRadius: 6,
+                              backgroundColor: '#dcfce7',
+                              color: '#166534',
+                              fontWeight: 700,
+                              fontSize: 11.5,
+                            }}
+                          >
+                            {m.fileType}
+                          </span>
+                          <span style={{ fontWeight: 600, color: '#0f172a', fontSize: 14 }}>{m.title}</span>
+                        </div>
+                        <a
+                          href={m.fileUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: 6,
+                            backgroundColor: '#059669',
+                            color: '#ffffff',
+                            textDecoration: 'none',
+                            fontWeight: 600,
+                            fontSize: 13,
+                          }}
+                        >
+                          Mở / Tải tài liệu ↗
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* KHU VỰC 2: BÀI KIỂM TRA TRẮC NGHIỆM CUỐI BÀI (QUIZ) */}
               {!isLoadingQuiz && hasQuiz && quizPaper && (
                 <div
                   style={{
-                    marginTop: 24,
+                    marginTop: 22,
                     padding: 22,
                     borderRadius: 12,
                     border: '2px solid #bfdbfe',
@@ -388,7 +513,6 @@ export const LessonPlayerPage: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Thông báo kết quả ngay sau khi nộp bài */}
                   {quizResult && (
                     <div
                       style={{
@@ -541,6 +665,175 @@ export const LessonPlayerPage: React.FC = () => {
                   </form>
                 </div>
               )}
+
+              {/* KHU VỰC 3: NỘP BÀI TẬP THỰC HÀNH & XEM ĐIỂM GIẢNG VIÊN CHẤM */}
+              <div
+                style={{
+                  marginTop: 22,
+                  padding: 20,
+                  borderRadius: 12,
+                  border: '1px solid #cbd5e1',
+                  backgroundColor: '#f8fafc',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+                  <div>
+                    <h3 style={{ margin: 0, color: '#0f172a' }}>Nộp bài tập thực hành</h3>
+                    <p style={{ margin: '4px 0 0 0', fontSize: 13, color: '#475569' }}>
+                      Tải file bài làm (ZIP, PDF, DOCX...) từ máy tính hoặc dán link GitHub / Google Drive để Giảng viên chấm điểm.
+                    </p>
+                  </div>
+
+                  {mySubmission && (
+                    <span
+                      style={{
+                        padding: '5px 12px',
+                        borderRadius: 999,
+                        fontSize: 12.5,
+                        fontWeight: 700,
+                        backgroundColor:
+                          mySubmission.grade !== null && mySubmission.grade !== undefined
+                            ? '#dcfce7'
+                            : '#e0f2fe',
+                        color:
+                          mySubmission.grade !== null && mySubmission.grade !== undefined
+                            ? '#166534'
+                            : '#0369a1',
+                      }}
+                    >
+                      {mySubmission.grade !== null && mySubmission.grade !== undefined
+                        ? `Điểm Giảng viên chấm: ${mySubmission.grade}/100`
+                        : 'Đã nộp bài (Đang chờ Giảng viên chấm)'}
+                    </span>
+                  )}
+                </div>
+
+                {/* Hiển thị điểm và lời phê của Giảng viên nếu đã chấm */}
+                {mySubmission && mySubmission.grade !== null && mySubmission.grade !== undefined && (
+                  <div
+                    style={{
+                      padding: 14,
+                      marginBottom: 14,
+                      borderRadius: 8,
+                      backgroundColor: '#ecfdf5',
+                      border: '1px solid #10b981',
+                      color: '#065f46',
+                      fontSize: 14,
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>
+                      Kết quả chấm bài: {mySubmission.grade} / 100 điểm
+                    </div>
+                    {mySubmission.instructorFeedback && (
+                      <div style={{ marginTop: 4 }}>
+                        <b>Nhận xét của Giảng viên:</b> {mySubmission.instructorFeedback}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {assignmentSuccessMsg && (
+                  <div
+                    style={{
+                      padding: 12,
+                      marginBottom: 12,
+                      borderRadius: 8,
+                      backgroundColor: '#ecfdf5',
+                      color: '#065f46',
+                      border: '1px solid #a7f3d0',
+                      fontSize: 13.5,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {assignmentSuccessMsg}
+                  </div>
+                )}
+
+                <form onSubmit={handleSubmitAssignment}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                        Chọn file bài làm từ máy tính (Tự động tải lên)
+                      </label>
+                      <input
+                        type="file"
+                        onChange={handleUploadSubmissionFile}
+                        disabled={isUploadingSubmissionFile}
+                        style={{
+                          width: '100%',
+                          padding: 7,
+                          borderRadius: 6,
+                          border: '1px solid #cbd5e1',
+                          backgroundColor: '#ffffff',
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                        Đường dẫn file bài làm hoặc Link GitHub / Google Drive *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={submissionUrl}
+                        onChange={(e) => setSubmissionUrl(e.target.value)}
+                        placeholder="https://github.com/... hoặc chọn file ở ô bên trái"
+                        style={{ width: '100%', padding: 9, borderRadius: 6, border: '1px solid #cbd5e1' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                      Ghi chú gửi Giảng viên (Tùy chọn)
+                    </label>
+                    <input
+                      type="text"
+                      value={submissionNote}
+                      onChange={(e) => setSubmissionNote(e.target.value)}
+                      placeholder="Nhập ghi chú hoặc hướng dẫn chạy bài tập..."
+                      style={{ width: '100%', padding: 9, borderRadius: 6, border: '1px solid #cbd5e1' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <button
+                      type="submit"
+                      disabled={isSubmittingAssignment || isUploadingSubmissionFile}
+                      style={{
+                        padding: '9px 18px',
+                        backgroundColor: '#0f172a',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: 8,
+                        fontWeight: 600,
+                        fontSize: 13.5,
+                        cursor: isSubmittingAssignment || isUploadingSubmissionFile ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      {isUploadingSubmissionFile
+                        ? 'Đang tải file...'
+                        : isSubmittingAssignment
+                        ? 'Đang nộp...'
+                        : mySubmission
+                        ? 'Cập nhật bài nộp'
+                        : 'Nộp bài tập'}
+                    </button>
+
+                    {mySubmission && (
+                      <a
+                        href={mySubmission.submissionUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ fontSize: 13, fontWeight: 600, color: '#2563eb', textDecoration: 'none' }}
+                      >
+                        Xem file bài đã nộp hiện tại ↗
+                      </a>
+                    )}
+                  </div>
+                </form>
+              </div>
 
               {/* Thanh điều hướng Bài trước / Bài tiếp theo */}
               <div

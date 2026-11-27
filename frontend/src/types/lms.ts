@@ -174,6 +174,56 @@ export interface QuizSubmitResultDto {
   questionFeedbacks: QuizQuestionFeedbackDto[];
 }
 
+export interface UploadedFileResultDto {
+  fileName: string;
+  fileUrl: string;
+  fileType: string;
+}
+
+export interface LessonMaterialDto {
+  id: string;
+  lessonId: string;
+  title: string;
+  fileUrl: string;
+  fileType: string;
+  creationTime: string;
+}
+
+export interface CreateLessonMaterialDto {
+  lessonId: string;
+  title: string;
+  fileUrl: string;
+  fileType: string;
+}
+
+export interface LessonSubmissionDto {
+  id: string;
+  enrollmentId: string;
+  lessonId: string;
+  studentId: string;
+  studentUserName: string;
+  studentEmail: string;
+  submissionUrl: string;
+  note: string;
+  grade?: number | null;
+  instructorFeedback: string;
+  submittedAt: string;
+  gradedAt?: string | null;
+}
+
+export interface SubmitLessonAssignmentDto {
+  courseId: string;
+  lessonId: string;
+  submissionUrl: string;
+  note: string;
+}
+
+export interface GradeLessonSubmissionDto {
+  submissionId: string;
+  grade: number;
+  instructorFeedback: string;
+}
+
 export interface StudentEnrolledCourseItemDto {
   courseId: string;
   courseTitle: string;

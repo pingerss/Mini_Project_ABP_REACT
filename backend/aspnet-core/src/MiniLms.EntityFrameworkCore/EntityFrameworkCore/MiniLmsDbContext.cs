@@ -14,6 +14,7 @@ using Volo.Abp.PermissionManagement.EntityFrameworkCore;
 using Volo.Abp.SettingManagement.EntityFrameworkCore;
 using Volo.Abp.TenantManagement;
 using Volo.Abp.TenantManagement.EntityFrameworkCore;
+using MiniLms.Attachments;
 using MiniLms.Quizzes;
 using Volo.Abp.EntityFrameworkCore.Modeling;
 
@@ -36,6 +37,8 @@ public class MiniLmsDbContext :
     public DbSet<LessonProgress> LessonProgresses { get; set; }
     public DbSet<QuizQuestion> QuizQuestions { get; set; }
     public DbSet<QuizAttempt> QuizAttempts { get; set; }
+    public DbSet<LessonMaterial> LessonMaterials { get; set; }
+    public DbSet<LessonSubmission> LessonSubmissions { get; set; }
 
     #region Entities from the modules
 
@@ -210,6 +213,53 @@ public class MiniLmsDbContext :
             b.HasOne<Lesson>()
                 .WithMany()
                 .HasForeignKey(x => x.LessonId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            b.HasIndex(x => new { x.EnrollmentId, x.LessonId });
+        });
+
+        // 7. Bảng LessonMaterials (Tài liệu học tập do Giảng viên đính kèm vào từng bài học)
+        builder.Entity<LessonMaterial>(b =>
+        {
+            b.ToTable("LessonMaterials");
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Title).IsRequired().HasMaxLength(200);
+            b.Property(x => x.FileUrl).IsRequired().HasMaxLength(1000);
+            b.Property(x => x.FileType).IsRequired().HasMaxLength(50);
+
+            b.HasOne<Lesson>()
+                .WithMany()
+                .HasForeignKey(x => x.LessonId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            b.HasIndex(x => x.LessonId);
+        });
+
+        // 8. Bảng LessonSubmissions (Bài tập thực hành do Học viên nộp & Giảng viên chấm điểm)
+        builder.Entity<LessonSubmission>(b =>
+        {
+            b.ToTable("LessonSubmissions");
+            b.ConfigureByConvention();
+
+            b.Property(x => x.SubmissionUrl).IsRequired().HasMaxLength(1000);
+            b.Property(x => x.Note).HasMaxLength(1000);
+            b.Property(x => x.InstructorFeedback).HasMaxLength(1000);
+
+            b.HasOne<Enrollment>()
+                .WithMany()
+                .HasForeignKey(x => x.EnrollmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Dùng Restrict để tránh lỗi multiple cascade paths trên SQL Server
+            b.HasOne<Lesson>()
+                .WithMany()
+                .HasForeignKey(x => x.LessonId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            b.HasOne<IdentityUser>()
+                .WithMany()
+                .HasForeignKey(x => x.StudentId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             b.HasIndex(x => new { x.EnrollmentId, x.LessonId });
