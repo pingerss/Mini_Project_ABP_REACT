@@ -8,14 +8,20 @@ import type {
   CreateUpdateCourseDto,
   CreateUpdateLessonDto,
   CreateUpdateQuizQuestionDto,
+  CreateLessonMaterialDto,
+  GradeLessonSubmissionDto,
   LessonDto,
+  LessonMaterialDto,
+  LessonSubmissionDto,
   QuizQuestionManageDto,
   QuizSubmitResultDto,
   RegisterInstructorDto,
   ResetStudentPasswordDto,
   StudentAccountDto,
   StudentQuizPaperDto,
+  SubmitLessonAssignmentDto,
   SubmitQuizInputDto,
+  UploadedFileResultDto,
 } from '../types/lms';
 
 /**
@@ -189,6 +195,67 @@ export const lmsService = {
 
   async submitQuiz(input: SubmitQuizInputDto): Promise<QuizSubmitResultDto> {
     const response = await axiosClient.post<QuizSubmitResultDto>('/api/app/quiz/submit-quiz', input);
+    return response.data;
+  },
+
+  // === LUỒNG TÀI LIỆU ĐÍNH KÈM & BÀI TẬP NỘP FILE (ATTACHMENTS & SUBMISSIONS) ===
+  async uploadFile(file: File): Promise<UploadedFileResultDto> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await axiosClient.post<UploadedFileResultDto>('/api/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  async getLessonMaterials(lessonId: string): Promise<LessonMaterialDto[]> {
+    const response = await axiosClient.get<LessonMaterialDto[]>(
+      `/api/app/lesson-attachment/materials/${lessonId}`
+    );
+    return response.data;
+  },
+
+  async createLessonMaterial(input: CreateLessonMaterialDto): Promise<LessonMaterialDto> {
+    const response = await axiosClient.post<LessonMaterialDto>(
+      '/api/app/lesson-attachment/material',
+      input
+    );
+    return response.data;
+  },
+
+  async deleteLessonMaterial(id: string): Promise<void> {
+    await axiosClient.delete(`/api/app/lesson-attachment/material/${id}`);
+  },
+
+  async getMySubmission(lessonId: string): Promise<LessonSubmissionDto | null> {
+    const response = await axiosClient.get<LessonSubmissionDto | null>(
+      `/api/app/lesson-attachment/my-submission/${lessonId}`
+    );
+    return response.data || null;
+  },
+
+  async submitAssignment(input: SubmitLessonAssignmentDto): Promise<LessonSubmissionDto> {
+    const response = await axiosClient.post<LessonSubmissionDto>(
+      '/api/app/lesson-attachment/submit-assignment',
+      input
+    );
+    return response.data;
+  },
+
+  async getLessonSubmissions(lessonId: string): Promise<LessonSubmissionDto[]> {
+    const response = await axiosClient.get<LessonSubmissionDto[]>(
+      `/api/app/lesson-attachment/lesson-submissions/${lessonId}`
+    );
+    return response.data;
+  },
+
+  async gradeSubmission(input: GradeLessonSubmissionDto): Promise<LessonSubmissionDto> {
+    const response = await axiosClient.post<LessonSubmissionDto>(
+      '/api/app/lesson-attachment/grade-submission',
+      input
+    );
     return response.data;
   },
 };

@@ -6,6 +6,8 @@ import type {
   CreateUpdateLessonDto,
   CreateUpdateQuizQuestionDto,
   LessonDto,
+  LessonMaterialDto,
+  LessonSubmissionDto,
   QuizQuestionManageDto,
 } from '../types/lms';
 
@@ -47,6 +49,19 @@ export const AdminLessonsPage: React.FC = () => {
     orderIndex: 1,
   });
   const [isSavingQuestion, setIsSavingQuestion] = useState(false);
+
+  // State Quản lý Tài liệu đính kèm & Bài nộp của Học viên
+  const [activeAttachLesson, setActiveAttachLesson] = useState<LessonDto | null>(null);
+  const [materials, setMaterials] = useState<LessonMaterialDto[]>([]);
+  const [submissions, setSubmissions] = useState<LessonSubmissionDto[]>([]);
+  const [isLoadingAttach, setIsLoadingAttach] = useState(false);
+  const [materialTitle, setMaterialTitle] = useState('');
+  const [materialUrl, setMaterialUrl] = useState('');
+  const [materialType, setMaterialType] = useState('LINK');
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [isSavingMaterial, setIsSavingMaterial] = useState(false);
+  const [gradeInputs, setGradeInputs] = useState<Record<string, { grade: number; feedback: string }>>({});
+  const [gradingSubmissionId, setGradingSubmissionId] = useState<string | null>(null);
 
   const loadCourseDetail = async () => {
     if (!courseId) return;
@@ -127,9 +142,8 @@ export const AdminLessonsPage: React.FC = () => {
       setDeletingId(lesson.id);
       setFeedback(null);
       await lmsService.deleteLesson(lesson.id);
-      if (activeQuizLesson?.id === lesson.id) {
-        setActiveQuizLesson(null);
-      }
+      if (activeQuizLesson?.id === lesson.id) setActiveQuizLesson(null);
+      if (activeAttachLesson?.id === lesson.id) setActiveAttachLesson(null);
       setFeedback({ type: 'success', text: `Đã xóa bài học "${lesson.title}".` });
       await loadCourseDetail();
     } catch (err: any) {
@@ -209,6 +223,7 @@ export const AdminLessonsPage: React.FC = () => {
   };
 
   const handleToggleQuizManager = async (lesson: LessonDto) => {
+    setActiveAttachLesson(null);
     if (activeQuizLesson?.id === lesson.id) {
       setActiveQuizLesson(null);
       return;
@@ -270,6 +285,138 @@ export const AdminLessonsPage: React.FC = () => {
     }
   };
 
+  // === QUẢN LÝ TÀI LIỆU ĐÍNH KÈM & CHẤM BÀI TẬP HỌC VIÊN ===
+  const loadAttachmentsAndSubmissions = async (lesson: LessonDto) => {
+    try {
+      setIsLoadingAttach(true);
+      const [matList, subList] = await Promise.all([
+        lmsService.getLessonMaterials(lesson.id),
+        lmsService.getLessonSubmissions(lesson.id),
+      ]);
+      setMaterials(matList);
+      setSubmissions(subList);
+
+      const initialGrades: Record<string, { grade: number; feedback: string }> = {};
+      subList.forEach((s) => {
+        initialGrades[s.id] = {
+          grade: s.grade ?? 100,
+          feedback: s.instructorFeedback || '',
+        };
+      });
+      setGradeInputs(initialGrades);
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        text: err.response?.data?.error?.message || 'Không thể tải tài liệu và bài nộp.',
+      });
+    } finally {
+      setIsLoadingAttach(false);
+    }
+  };
+
+  const handleToggleAttachManager = async (lesson: LessonDto) => {
+    setActiveQuizLesson(null);
+    if (activeAttachLesson?.id === lesson.id) {
+      setActiveAttachLesson(null);
+      return;
+    }
+    setActiveAttachLesson(lesson);
+    setMaterialTitle('');
+    setMaterialUrl('');
+    setMaterialType('LINK');
+    await loadAttachmentsAndSubmissions(lesson);
+  };
+
+  const handleFileUploadForMaterial = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setIsUploadingFile(true);
+      setFeedback(null);
+      const uploaded = await lmsService.uploadFile(file);
+      setMaterialUrl(uploaded.fileUrl);
+      setMaterialType(uploaded.fileType || 'FILE');
+      if (!materialTitle.trim()) {
+        setMaterialTitle(uploaded.fileName);
+      }
+      setFeedback({ type: 'success', text: `Đã tải file "${uploaded.fileName}" lên máy chủ.` });
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        text: err.response?.data?.error?.message || 'Tải file lên thất bại.',
+      });
+    } finally {
+      setIsUploadingFile(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleAddMaterial = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeAttachLesson) return;
+    try {
+      setIsSavingMaterial(true);
+      setFeedback(null);
+      await lmsService.createLessonMaterial({
+        lessonId: activeAttachLesson.id,
+        title: materialTitle,
+        fileUrl: materialUrl,
+        fileType: materialType,
+      });
+      setMaterialTitle('');
+      setMaterialUrl('');
+      setMaterialType('LINK');
+      setFeedback({ type: 'success', text: 'Đã đính kèm tài liệu học tập vào bài giảng.' });
+      await loadAttachmentsAndSubmissions(activeAttachLesson);
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        text: err.response?.data?.error?.message || 'Không thể lưu tài liệu đính kèm.',
+      });
+    } finally {
+      setIsSavingMaterial(false);
+    }
+  };
+
+  const handleDeleteMaterial = async (m: LessonMaterialDto) => {
+    if (!activeAttachLesson) return;
+    if (!window.confirm(`Xóa tài liệu "${m.title}"?`)) return;
+    try {
+      await lmsService.deleteLessonMaterial(m.id);
+      setFeedback({ type: 'success', text: 'Đã xóa tài liệu đính kèm.' });
+      await loadAttachmentsAndSubmissions(activeAttachLesson);
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        text: err.response?.data?.error?.message || 'Không thể xóa tài liệu.',
+      });
+    }
+  };
+
+  const handleGradeSubmission = async (submissionId: string) => {
+    if (!activeAttachLesson) return;
+    const input = gradeInputs[submissionId];
+    if (!input) return;
+    try {
+      setGradingSubmissionId(submissionId);
+      setFeedback(null);
+      await lmsService.gradeSubmission({
+        submissionId,
+        grade: Number(input.grade),
+        instructorFeedback: input.feedback,
+      });
+      setFeedback({ type: 'success', text: 'Đã lưu điểm và nhận xét cho bài nộp của Học viên!' });
+      await loadAttachmentsAndSubmissions(activeAttachLesson);
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        text: err.response?.data?.error?.message || 'Chấm điểm thất bại.',
+      });
+    } finally {
+      setGradingSubmissionId(null);
+    }
+  };
+
   if (isLoading) return <p style={{ padding: 24 }}>Đang tải danh sách bài học...</p>;
   if (error || !course) return <p style={{ padding: 24, color: '#dc2626' }}>{error}</p>;
 
@@ -297,11 +444,11 @@ export const AdminLessonsPage: React.FC = () => {
       >
         <div>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#2563eb', textTransform: 'uppercase' }}>
-            Quản lý Bài học & Quiz trắc nghiệm
+            Quản lý Bài học, Tài liệu & Quiz trắc nghiệm
           </div>
           <h1 style={{ margin: '4px 0 6px 0' }}>{course.title}</h1>
           <p style={{ color: '#64748b', margin: 0, fontSize: 14 }}>
-            Hiện có <b>{course.lessons.length}</b> bài học. Bấm <b>"Quản lý Quiz"</b> ở từng bài để tạo câu hỏi kiểm tra cuối bài.
+            Hiện có <b>{course.lessons.length}</b> bài học. Bấm <b>"Tài liệu & Bài nộp"</b> hoặc <b>"Quản lý Quiz"</b> ở từng bài để cấu hình.
           </p>
         </div>
 
@@ -457,6 +604,7 @@ export const AdminLessonsPage: React.FC = () => {
           course.lessons.map((lesson, idx) => {
             const isDeleting = deletingId === lesson.id;
             const isQuizOpen = activeQuizLesson?.id === lesson.id;
+            const isAttachOpen = activeAttachLesson?.id === lesson.id;
 
             return (
               <div
@@ -464,7 +612,8 @@ export const AdminLessonsPage: React.FC = () => {
                 style={{
                   backgroundColor: '#ffffff',
                   borderRadius: 10,
-                  border: isQuizOpen ? '2px solid #2563eb' : '1px solid #e2e8f0',
+                  border:
+                    isQuizOpen || isAttachOpen ? '2px solid #2563eb' : '1px solid #e2e8f0',
                   overflow: 'hidden',
                 }}
               >
@@ -501,6 +650,21 @@ export const AdminLessonsPage: React.FC = () => {
                   </div>
 
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => handleToggleAttachManager(lesson)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: 6,
+                        border: 'none',
+                        backgroundColor: isAttachOpen ? '#047857' : '#ecfdf5',
+                        color: isAttachOpen ? '#ffffff' : '#047857',
+                        fontWeight: 600,
+                        fontSize: 13,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {isAttachOpen ? 'Đóng Tài liệu & Bài nộp' : 'Tài liệu & Bài nộp'}
+                    </button>
                     <button
                       onClick={() => handleToggleQuizManager(lesson)}
                       style={{
@@ -580,6 +744,303 @@ export const AdminLessonsPage: React.FC = () => {
                     </button>
                   </div>
                 </div>
+
+                {/* KHUNG QUẢN LÝ TÀI LIỆU ĐÍNH KÈM & BÀI TẬP NỘP CỦA HỌC VIÊN */}
+                {isAttachOpen && (
+                  <div
+                    style={{
+                      padding: 20,
+                      backgroundColor: '#f8fafc',
+                      borderTop: '1px solid #cbd5e1',
+                    }}
+                  >
+                    {/* PHẦN 1: TÀI LIỆU ĐÍNH KÈM */}
+                    <h3 style={{ marginTop: 0, color: '#065f46' }}>
+                      1. Tài liệu học tập đính kèm — {lesson.title} ({materials.length} tài liệu)
+                    </h3>
+
+                    <form
+                      onSubmit={handleAddMaterial}
+                      style={{
+                        padding: 16,
+                        backgroundColor: '#ffffff',
+                        borderRadius: 10,
+                        border: '1px solid #cbd5e1',
+                        marginBottom: 16,
+                      }}
+                    >
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                            Tên tài liệu hiển thị *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={materialTitle}
+                            onChange={(e) => setMaterialTitle(e.target.value)}
+                            placeholder="Ví dụ: Slide bài giảng Chương 1 (PDF)"
+                            style={{ width: '100%', padding: 9, borderRadius: 6, border: '1px solid #cbd5e1' }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                            Tải file từ máy tính (PDF, DOCX, ZIP, PPTX, Ảnh...)
+                          </label>
+                          <input
+                            type="file"
+                            onChange={handleFileUploadForMaterial}
+                            disabled={isUploadingFile}
+                            style={{ width: '100%', padding: 6, borderRadius: 6, border: '1px solid #cbd5e1', backgroundColor: '#f8fafc' }}
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px auto', gap: 10, alignItems: 'end' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                            Đường dẫn File (tự điền khi chọn file) hoặc dán Link Google Drive / GitHub *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={materialUrl}
+                            onChange={(e) => setMaterialUrl(e.target.value)}
+                            placeholder="https://... hoặc tải file ở ô bên trên"
+                            style={{ width: '100%', padding: 9, borderRadius: 6, border: '1px solid #cbd5e1' }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                            Loại
+                          </label>
+                          <select
+                            value={materialType}
+                            onChange={(e) => setMaterialType(e.target.value)}
+                            style={{ width: '100%', padding: 9, borderRadius: 6, border: '1px solid #cbd5e1' }}
+                          >
+                            <option value="LINK">LINK</option>
+                            <option value="PDF">PDF</option>
+                            <option value="DOCX">DOCX</option>
+                            <option value="ZIP">ZIP</option>
+                            <option value="FILE">FILE</option>
+                          </select>
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={isSavingMaterial || isUploadingFile}
+                          style={{
+                            padding: '9px 18px',
+                            backgroundColor: '#059669',
+                            color: '#ffffff',
+                            border: 'none',
+                            borderRadius: 6,
+                            fontWeight: 600,
+                            cursor: isSavingMaterial || isUploadingFile ? 'not-allowed' : 'pointer',
+                            height: 38,
+                          }}
+                        >
+                          {isUploadingFile ? 'Đang tải file...' : isSavingMaterial ? 'Đang lưu...' : '+ Đính kèm'}
+                        </button>
+                      </div>
+                    </form>
+
+                    {isLoadingAttach ? (
+                      <p style={{ fontSize: 13.5 }}>Đang tải dữ liệu...</p>
+                    ) : materials.length === 0 ? (
+                      <div style={{ fontSize: 13.5, color: '#64748b', marginBottom: 20 }}>
+                        Chưa có tài liệu đính kèm nào cho bài học này.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 24 }}>
+                        {materials.map((m) => (
+                          <div
+                            key={m.id}
+                            style={{
+                              padding: '10px 14px',
+                              backgroundColor: '#ffffff',
+                              borderRadius: 8,
+                              border: '1px solid #e2e8f0',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              gap: 12,
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <span
+                                style={{
+                                  padding: '2px 8px',
+                                  borderRadius: 6,
+                                  backgroundColor: '#e0f2fe',
+                                  color: '#0369a1',
+                                  fontWeight: 700,
+                                  fontSize: 11.5,
+                                }}
+                              >
+                                {m.fileType}
+                              </span>
+                              <a
+                                href={m.fileUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{ fontWeight: 600, color: '#1d4ed8', textDecoration: 'none', fontSize: 14 }}
+                              >
+                                {m.title} ↗
+                              </a>
+                            </div>
+
+                            <button
+                              onClick={() => handleDeleteMaterial(m)}
+                              style={{
+                                padding: '4px 10px',
+                                borderRadius: 6,
+                                border: 'none',
+                                backgroundColor: '#fee2e2',
+                                color: '#b91c1c',
+                                fontSize: 12.5,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Xóa
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* PHẦN 2: DANH SÁCH BÀI TẬP HỌC VIÊN ĐÃ NỘP & CHẤM ĐIỂM */}
+                    <h3 style={{ marginTop: 16, color: '#1e3a8a', borderTop: '1px solid #cbd5e1', paddingTop: 16 }}>
+                      2. Danh sách Bài tập Học viên đã nộp ({submissions.length} bài nộp)
+                    </h3>
+
+                    {submissions.length === 0 ? (
+                      <div style={{ fontSize: 13.5, color: '#64748b' }}>
+                        Chưa có học viên nào nộp bài tập ở bài học này.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        {submissions.map((sub) => {
+                          const gInput = gradeInputs[sub.id] || { grade: sub.grade ?? 100, feedback: sub.instructorFeedback || '' };
+                          const isGrading = gradingSubmissionId === sub.id;
+
+                          return (
+                            <div
+                              key={sub.id}
+                              style={{
+                                padding: 16,
+                                backgroundColor: '#ffffff',
+                                borderRadius: 10,
+                                border: '1px solid #cbd5e1',
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                                <div>
+                                  <span style={{ fontWeight: 700, color: '#0f172a', fontSize: 14.5 }}>
+                                    Học viên: {sub.studentUserName}
+                                  </span>{' '}
+                                  <span style={{ fontSize: 13, color: '#64748b' }}>({sub.studentEmail})</span>
+                                </div>
+                                <a
+                                  href={sub.submissionUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{
+                                    padding: '6px 12px',
+                                    borderRadius: 6,
+                                    backgroundColor: '#eff6ff',
+                                    color: '#1d4ed8',
+                                    fontWeight: 600,
+                                    fontSize: 13,
+                                    textDecoration: 'none',
+                                  }}
+                                >
+                                  Mở / Tải bài nộp của Học viên ↗
+                                </a>
+                              </div>
+
+                              {sub.note && (
+                                <div style={{ marginTop: 8, fontSize: 13.5, color: '#334155', backgroundColor: '#f8fafc', padding: '8px 12px', borderRadius: 6 }}>
+                                  <b>Ghi chú của học viên:</b> {sub.note}
+                                </div>
+                              )}
+
+                              <div
+                                style={{
+                                  marginTop: 12,
+                                  display: 'grid',
+                                  gridTemplateColumns: '130px 1fr auto',
+                                  gap: 10,
+                                  alignItems: 'end',
+                                }}
+                              >
+                                <div>
+                                  <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>
+                                    Điểm số (0 - 100)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    value={gInput.grade}
+                                    onChange={(e) =>
+                                      setGradeInputs({
+                                        ...gradeInputs,
+                                        [sub.id]: { ...gInput, grade: Number(e.target.value) },
+                                      })
+                                    }
+                                    style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #cbd5e1', fontWeight: 700 }}
+                                  />
+                                </div>
+
+                                <div>
+                                  <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>
+                                    Nhận xét của Giảng viên
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={gInput.feedback}
+                                    onChange={(e) =>
+                                      setGradeInputs({
+                                        ...gradeInputs,
+                                        [sub.id]: { ...gInput, feedback: e.target.value },
+                                      })
+                                    }
+                                    placeholder="Nhập nhận xét hoặc góp ý cho bài làm..."
+                                    style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #cbd5e1' }}
+                                  />
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleGradeSubmission(sub.id)}
+                                  disabled={isGrading}
+                                  style={{
+                                    padding: '8px 16px',
+                                    borderRadius: 6,
+                                    border: 'none',
+                                    backgroundColor: '#2563eb',
+                                    color: '#ffffff',
+                                    fontWeight: 600,
+                                    fontSize: 13,
+                                    cursor: isGrading ? 'not-allowed' : 'pointer',
+                                    height: 36,
+                                  }}
+                                >
+                                  {isGrading ? 'Đang lưu...' : sub.grade !== null && sub.grade !== undefined ? 'Cập nhật điểm' : 'Lưu chấm điểm'}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* KHUNG QUẢN LÝ CÂU HỎI TRẮC NGHIỆM CỦA BÀI HỌC NÀY */}
                 {isQuizOpen && (
