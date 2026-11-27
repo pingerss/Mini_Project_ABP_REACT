@@ -47,6 +47,7 @@ export interface LessonWithProgressDto {
   orderIndex: number;
   isCompleted: boolean;
   completedAt?: string | null;
+  quizQuestionCount?: number;
 }
 
 export interface CourseLearningDto {
@@ -101,6 +102,76 @@ export interface ResetStudentPasswordDto {
 export interface ChangeMyPasswordDto {
   currentPassword: string;
   newPassword: string;
+}
+
+export interface QuizQuestionManageDto {
+  id: string;
+  lessonId: string;
+  questionText: string;
+  optionA: string;
+  optionB: string;
+  optionC: string;
+  optionD: string;
+  correctOption: 'A' | 'B' | 'C' | 'D' | string;
+  orderIndex: number;
+}
+
+export interface CreateUpdateQuizQuestionDto {
+  lessonId: string;
+  questionText: string;
+  optionA: string;
+  optionB: string;
+  optionC: string;
+  optionD: string;
+  correctOption: 'A' | 'B' | 'C' | 'D' | string;
+  orderIndex: number;
+}
+
+export interface StudentQuizQuestionItemDto {
+  id: string;
+  questionText: string;
+  optionA: string;
+  optionB: string;
+  optionC: string;
+  optionD: string;
+  orderIndex: number;
+}
+
+export interface StudentQuizPaperDto {
+  lessonId: string;
+  passingScorePercent: number;
+  totalAttempts: number;
+  bestScorePercent?: number | null;
+  isPassed: boolean;
+  questions: StudentQuizQuestionItemDto[];
+}
+
+export interface QuizAnswerSubmissionDto {
+  questionId: string;
+  selectedOption: string;
+}
+
+export interface SubmitQuizInputDto {
+  courseId: string;
+  lessonId: string;
+  answers: QuizAnswerSubmissionDto[];
+}
+
+export interface QuizQuestionFeedbackDto {
+  questionId: string;
+  selectedOption: string;
+  isCorrect: boolean;
+}
+
+export interface QuizSubmitResultDto {
+  lessonId: string;
+  totalQuestions: number;
+  correctAnswers: number;
+  scorePercent: number;
+  passingScorePercent: number;
+  isPassed: boolean;
+  message: string;
+  questionFeedbacks: QuizQuestionFeedbackDto[];
 }
 
 export interface StudentEnrolledCourseItemDto {

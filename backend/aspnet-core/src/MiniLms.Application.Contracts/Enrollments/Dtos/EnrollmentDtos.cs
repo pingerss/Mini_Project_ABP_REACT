@@ -37,6 +37,7 @@ public class LessonWithProgressDto
     public int OrderIndex { get; set; }
     public bool IsCompleted { get; set; }
     public DateTime? CompletedAt { get; set; }
+    public int QuizQuestionCount { get; set; }
 }
 
 public class ToggleLessonProgressInput

@@ -7,10 +7,15 @@ import type {
   CreateStudentDto,
   CreateUpdateCourseDto,
   CreateUpdateLessonDto,
+  CreateUpdateQuizQuestionDto,
   LessonDto,
+  QuizQuestionManageDto,
+  QuizSubmitResultDto,
   RegisterInstructorDto,
   ResetStudentPasswordDto,
   StudentAccountDto,
+  StudentQuizPaperDto,
+  SubmitQuizInputDto,
 } from '../types/lms';
 
 /**
@@ -145,5 +150,45 @@ export const lmsService = {
 
   async changeMyPassword(input: ChangeMyPasswordDto): Promise<void> {
     await axiosClient.post('/api/app/account-management/change-my-password', input);
+  },
+
+  // === LUỒNG BÀI KIỂM TRA TRẮC NGHIỆM (QUIZ & ASSESSMENT) ===
+  async getManageQuizQuestions(lessonId: string): Promise<QuizQuestionManageDto[]> {
+    const response = await axiosClient.get<QuizQuestionManageDto[]>(
+      `/api/app/quiz/manage-questions/${lessonId}`
+    );
+    return response.data;
+  },
+
+  async createQuizQuestion(input: CreateUpdateQuizQuestionDto): Promise<QuizQuestionManageDto> {
+    const response = await axiosClient.post<QuizQuestionManageDto>('/api/app/quiz/question', input);
+    return response.data;
+  },
+
+  async updateQuizQuestion(
+    id: string,
+    input: CreateUpdateQuizQuestionDto
+  ): Promise<QuizQuestionManageDto> {
+    const response = await axiosClient.put<QuizQuestionManageDto>(
+      `/api/app/quiz/question/${id}`,
+      input
+    );
+    return response.data;
+  },
+
+  async deleteQuizQuestion(id: string): Promise<void> {
+    await axiosClient.delete(`/api/app/quiz/question/${id}`);
+  },
+
+  async getStudentQuiz(lessonId: string): Promise<StudentQuizPaperDto> {
+    const response = await axiosClient.get<StudentQuizPaperDto>(
+      `/api/app/quiz/student-quiz/${lessonId}`
+    );
+    return response.data;
+  },
+
+  async submitQuiz(input: SubmitQuizInputDto): Promise<QuizSubmitResultDto> {
+    const response = await axiosClient.post<QuizSubmitResultDto>('/api/app/quiz/submit-quiz', input);
+    return response.data;
   },
 };

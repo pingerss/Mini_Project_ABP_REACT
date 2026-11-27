@@ -1,7 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { lmsService, toEmbedVideoUrl } from '../api/lmsService';
-import type { CourseDto, CreateUpdateLessonDto, LessonDto } from '../types/lms';
+import type {
+  CourseDto,
+  CreateUpdateLessonDto,
+  CreateUpdateQuizQuestionDto,
+  LessonDto,
+  QuizQuestionManageDto,
+} from '../types/lms';
 
 export const AdminLessonsPage: React.FC = () => {
   const { courseId } = useParams<{ courseId: string }>();
@@ -24,6 +30,23 @@ export const AdminLessonsPage: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isReordering, setIsReordering] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // State Quản lý Quiz cho một bài học đang mở
+  const [activeQuizLesson, setActiveQuizLesson] = useState<LessonDto | null>(null);
+  const [quizQuestions, setQuizQuestions] = useState<QuizQuestionManageDto[]>([]);
+  const [isLoadingQuiz, setIsLoadingQuiz] = useState(false);
+  const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
+  const [questionForm, setQuestionForm] = useState<CreateUpdateQuizQuestionDto>({
+    lessonId: '',
+    questionText: '',
+    optionA: '',
+    optionB: '',
+    optionC: '',
+    optionD: '',
+    correctOption: 'A',
+    orderIndex: 1,
+  });
+  const [isSavingQuestion, setIsSavingQuestion] = useState(false);
 
   const loadCourseDetail = async () => {
     if (!courseId) return;
@@ -104,6 +127,9 @@ export const AdminLessonsPage: React.FC = () => {
       setDeletingId(lesson.id);
       setFeedback(null);
       await lmsService.deleteLesson(lesson.id);
+      if (activeQuizLesson?.id === lesson.id) {
+        setActiveQuizLesson(null);
+      }
       setFeedback({ type: 'success', text: `Đã xóa bài học "${lesson.title}".` });
       await loadCourseDetail();
     } catch (err: any) {
@@ -151,11 +177,104 @@ export const AdminLessonsPage: React.FC = () => {
     }
   };
 
+  // === QUẢN LÝ CÂU HỎI TRẮC NGHIỆM (QUIZ) ===
+  const loadQuizQuestions = async (lesson: LessonDto) => {
+    try {
+      setIsLoadingQuiz(true);
+      const data = await lmsService.getManageQuizQuestions(lesson.id);
+      setQuizQuestions(data);
+      resetQuestionForm(lesson.id, data.length + 1);
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        text: err.response?.data?.error?.message || 'Không thể tải danh sách câu hỏi Quiz.',
+      });
+    } finally {
+      setIsLoadingQuiz(false);
+    }
+  };
+
+  const resetQuestionForm = (lessonId: string, nextOrder: number) => {
+    setEditingQuestionId(null);
+    setQuestionForm({
+      lessonId,
+      questionText: '',
+      optionA: '',
+      optionB: '',
+      optionC: '',
+      optionD: '',
+      correctOption: 'A',
+      orderIndex: nextOrder,
+    });
+  };
+
+  const handleToggleQuizManager = async (lesson: LessonDto) => {
+    if (activeQuizLesson?.id === lesson.id) {
+      setActiveQuizLesson(null);
+      return;
+    }
+    setActiveQuizLesson(lesson);
+    await loadQuizQuestions(lesson);
+  };
+
+  const handleEditQuestion = (q: QuizQuestionManageDto) => {
+    setEditingQuestionId(q.id);
+    setQuestionForm({
+      lessonId: q.lessonId,
+      questionText: q.questionText,
+      optionA: q.optionA,
+      optionB: q.optionB,
+      optionC: q.optionC,
+      optionD: q.optionD,
+      correctOption: q.correctOption,
+      orderIndex: q.orderIndex,
+    });
+  };
+
+  const handleSaveQuestion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeQuizLesson) return;
+    try {
+      setIsSavingQuestion(true);
+      setFeedback(null);
+      if (editingQuestionId) {
+        await lmsService.updateQuizQuestion(editingQuestionId, questionForm);
+        setFeedback({ type: 'success', text: 'Đã cập nhật câu hỏi trắc nghiệm.' });
+      } else {
+        await lmsService.createQuizQuestion(questionForm);
+        setFeedback({ type: 'success', text: 'Đã thêm câu hỏi trắc nghiệm mới.' });
+      }
+      await loadQuizQuestions(activeQuizLesson);
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        text: err.response?.data?.error?.message || 'Lưu câu hỏi trắc nghiệm thất bại.',
+      });
+    } finally {
+      setIsSavingQuestion(false);
+    }
+  };
+
+  const handleDeleteQuestion = async (q: QuizQuestionManageDto) => {
+    if (!activeQuizLesson) return;
+    if (!window.confirm(`Xóa câu hỏi "${q.questionText}"?`)) return;
+    try {
+      await lmsService.deleteQuizQuestion(q.id);
+      setFeedback({ type: 'success', text: 'Đã xóa câu hỏi trắc nghiệm.' });
+      await loadQuizQuestions(activeQuizLesson);
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        text: err.response?.data?.error?.message || 'Không thể xóa câu hỏi.',
+      });
+    }
+  };
+
   if (isLoading) return <p style={{ padding: 24 }}>Đang tải danh sách bài học...</p>;
   if (error || !course) return <p style={{ padding: 24, color: '#dc2626' }}>{error}</p>;
 
   return (
-    <div style={{ maxWidth: 960, width: '100%', margin: '28px auto', padding: '0 20px' }}>
+    <div style={{ maxWidth: 980, width: '100%', margin: '28px auto', padding: '0 20px' }}>
       <div style={{ marginBottom: 16 }}>
         <Link to="/admin" style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 600, fontSize: 14 }}>
           ← Quay lại Quản lý Khóa học
@@ -178,11 +297,11 @@ export const AdminLessonsPage: React.FC = () => {
       >
         <div>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#2563eb', textTransform: 'uppercase' }}>
-            Quản lý Bài học (Lessons)
+            Quản lý Bài học & Quiz trắc nghiệm
           </div>
           <h1 style={{ margin: '4px 0 6px 0' }}>{course.title}</h1>
           <p style={{ color: '#64748b', margin: 0, fontSize: 14 }}>
-            Hiện có <b>{course.lessons.length}</b> bài học trong khóa này.
+            Hiện có <b>{course.lessons.length}</b> bài học. Bấm <b>"Quản lý Quiz"</b> ở từng bài để tạo câu hỏi kiểm tra cuối bài.
           </p>
         </div>
 
@@ -337,107 +456,402 @@ export const AdminLessonsPage: React.FC = () => {
         ) : (
           course.lessons.map((lesson, idx) => {
             const isDeleting = deletingId === lesson.id;
+            const isQuizOpen = activeQuizLesson?.id === lesson.id;
+
             return (
               <div
                 key={lesson.id}
                 style={{
-                  padding: 18,
                   backgroundColor: '#ffffff',
                   borderRadius: 10,
-                  border: '1px solid #e2e8f0',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 16,
-                  flexWrap: 'wrap',
+                  border: isQuizOpen ? '2px solid #2563eb' : '1px solid #e2e8f0',
+                  overflow: 'hidden',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1 }}>
-                  <span
-                    style={{
-                      minWidth: 32,
-                      height: 32,
-                      borderRadius: 999,
-                      backgroundColor: '#eff6ff',
-                      color: '#1d4ed8',
-                      fontWeight: 700,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    {lesson.orderIndex}
-                  </span>
-                  <div>
-                    <div style={{ fontWeight: 600, color: '#0f172a' }}>{lesson.title}</div>
-                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>{lesson.content}</div>
+                <div
+                  style={{
+                    padding: 18,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 16,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1 }}>
+                    <span
+                      style={{
+                        minWidth: 32,
+                        height: 32,
+                        borderRadius: 999,
+                        backgroundColor: '#eff6ff',
+                        color: '#1d4ed8',
+                        fontWeight: 700,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      {lesson.orderIndex}
+                    </span>
+                    <div>
+                      <div style={{ fontWeight: 600, color: '#0f172a' }}>{lesson.title}</div>
+                      <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>{lesson.content}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => handleToggleQuizManager(lesson)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: 6,
+                        border: 'none',
+                        backgroundColor: isQuizOpen ? '#1e40af' : '#eff6ff',
+                        color: isQuizOpen ? '#ffffff' : '#1d4ed8',
+                        fontWeight: 600,
+                        fontSize: 13,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {isQuizOpen ? 'Đóng Quản lý Quiz' : 'Quản lý Quiz'}
+                    </button>
+                    <button
+                      onClick={() => handleSwapOrder(idx, -1)}
+                      disabled={idx === 0 || isReordering}
+                      title="Đưa lên trên"
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        border: '1px solid #cbd5e1',
+                        backgroundColor: '#ffffff',
+                        cursor: idx === 0 || isReordering ? 'not-allowed' : 'pointer',
+                        opacity: idx === 0 || isReordering ? 0.4 : 1,
+                      }}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      onClick={() => handleSwapOrder(idx, 1)}
+                      disabled={idx === course.lessons.length - 1 || isReordering}
+                      title="Đưa xuống dưới"
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        border: '1px solid #cbd5e1',
+                        backgroundColor: '#ffffff',
+                        cursor: idx === course.lessons.length - 1 || isReordering ? 'not-allowed' : 'pointer',
+                        opacity: idx === course.lessons.length - 1 || isReordering ? 0.4 : 1,
+                      }}
+                    >
+                      ↓
+                    </button>
+                    <button
+                      onClick={() => openEditForm(lesson)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: 6,
+                        border: '1px solid #cbd5e1',
+                        backgroundColor: '#ffffff',
+                        color: '#334155',
+                        fontWeight: 600,
+                        fontSize: 13,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Sửa
+                    </button>
+                    <button
+                      onClick={() => handleDelete(lesson)}
+                      disabled={isDeleting}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: 6,
+                        border: 'none',
+                        backgroundColor: '#fee2e2',
+                        color: '#b91c1c',
+                        fontWeight: 600,
+                        fontSize: 13,
+                        cursor: isDeleting ? 'not-allowed' : 'pointer',
+                        opacity: isDeleting ? 0.5 : 1,
+                      }}
+                    >
+                      {isDeleting ? 'Đang xóa...' : 'Xóa'}
+                    </button>
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <button
-                    onClick={() => handleSwapOrder(idx, -1)}
-                    disabled={idx === 0 || isReordering}
-                    title="Đưa lên trên"
+                {/* KHUNG QUẢN LÝ CÂU HỎI TRẮC NGHIỆM CỦA BÀI HỌC NÀY */}
+                {isQuizOpen && (
+                  <div
                     style={{
-                      padding: '6px 10px',
-                      borderRadius: 6,
-                      border: '1px solid #cbd5e1',
-                      backgroundColor: '#ffffff',
-                      cursor: idx === 0 || isReordering ? 'not-allowed' : 'pointer',
-                      opacity: idx === 0 || isReordering ? 0.4 : 1,
+                      padding: 20,
+                      backgroundColor: '#f8fafc',
+                      borderTop: '1px solid #cbd5e1',
                     }}
                   >
-                    ↑
-                  </button>
-                  <button
-                    onClick={() => handleSwapOrder(idx, 1)}
-                    disabled={idx === course.lessons.length - 1 || isReordering}
-                    title="Đưa xuống dưới"
-                    style={{
-                      padding: '6px 10px',
-                      borderRadius: 6,
-                      border: '1px solid #cbd5e1',
-                      backgroundColor: '#ffffff',
-                      cursor: idx === course.lessons.length - 1 || isReordering ? 'not-allowed' : 'pointer',
-                      opacity: idx === course.lessons.length - 1 || isReordering ? 0.4 : 1,
-                    }}
-                  >
-                    ↓
-                  </button>
-                  <button
-                    onClick={() => openEditForm(lesson)}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: 6,
-                      border: '1px solid #cbd5e1',
-                      backgroundColor: '#ffffff',
-                      color: '#334155',
-                      fontWeight: 600,
-                      fontSize: 13,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Sửa
-                  </button>
-                  <button
-                    onClick={() => handleDelete(lesson)}
-                    disabled={isDeleting}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: 6,
-                      border: 'none',
-                      backgroundColor: '#fee2e2',
-                      color: '#b91c1c',
-                      fontWeight: 600,
-                      fontSize: 13,
-                      cursor: isDeleting ? 'not-allowed' : 'pointer',
-                      opacity: isDeleting ? 0.5 : 1,
-                    }}
-                  >
-                    {isDeleting ? 'Đang xóa...' : 'Xóa'}
-                  </button>
-                </div>
+                    <h3 style={{ marginTop: 0, color: '#1e3a8a' }}>
+                      Bộ câu hỏi trắc nghiệm — {lesson.title} ({quizQuestions.length} câu)
+                    </h3>
+                    <p style={{ fontSize: 13, color: '#475569', marginBottom: 16 }}>
+                      Khi bài học có câu hỏi trắc nghiệm, Học viên phải nộp bài đạt từ <b>70%</b> trở lên mới tự động hoàn thành bài học.
+                    </p>
+
+                    {/* Form Thêm / Sửa câu hỏi */}
+                    <form
+                      onSubmit={handleSaveQuestion}
+                      style={{
+                        padding: 18,
+                        backgroundColor: '#ffffff',
+                        borderRadius: 10,
+                        border: '1px solid #cbd5e1',
+                        marginBottom: 18,
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, marginBottom: 12, color: '#0f172a' }}>
+                        {editingQuestionId ? 'Chỉnh sửa câu hỏi' : '+ Thêm câu hỏi trắc nghiệm mới'}
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px 150px', gap: 12, marginBottom: 12 }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                            Nội dung câu hỏi *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={questionForm.questionText}
+                            onChange={(e) => setQuestionForm({ ...questionForm, questionText: e.target.value })}
+                            placeholder="Ví dụ: Trong ABP Framework, tầng nào chứa AggregateRoot?"
+                            style={{ width: '100%', padding: 9, borderRadius: 6, border: '1px solid #cbd5e1' }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                            Thứ tự câu
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            required
+                            value={questionForm.orderIndex}
+                            onChange={(e) => setQuestionForm({ ...questionForm, orderIndex: Number(e.target.value) })}
+                            style={{ width: '100%', padding: 9, borderRadius: 6, border: '1px solid #cbd5e1' }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                            Đáp án đúng *
+                          </label>
+                          <select
+                            value={questionForm.correctOption}
+                            onChange={(e) => setQuestionForm({ ...questionForm, correctOption: e.target.value })}
+                            style={{
+                              width: '100%',
+                              padding: 9,
+                              borderRadius: 6,
+                              border: '1px solid #16a34a',
+                              backgroundColor: '#f0fdf4',
+                              fontWeight: 700,
+                              color: '#166534',
+                            }}
+                          >
+                            <option value="A">Đáp án A</option>
+                            <option value="B">Đáp án B</option>
+                            <option value="C">Đáp án C</option>
+                            <option value="D">Đáp án D</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>
+                            Lựa chọn A *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={questionForm.optionA}
+                            onChange={(e) => setQuestionForm({ ...questionForm, optionA: e.target.value })}
+                            placeholder="Nhập đáp án A"
+                            style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #cbd5e1' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>
+                            Lựa chọn B *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={questionForm.optionB}
+                            onChange={(e) => setQuestionForm({ ...questionForm, optionB: e.target.value })}
+                            placeholder="Nhập đáp án B"
+                            style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #cbd5e1' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>
+                            Lựa chọn C *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={questionForm.optionC}
+                            onChange={(e) => setQuestionForm({ ...questionForm, optionC: e.target.value })}
+                            placeholder="Nhập đáp án C"
+                            style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #cbd5e1' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>
+                            Lựa chọn D *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={questionForm.optionD}
+                            onChange={(e) => setQuestionForm({ ...questionForm, optionD: e.target.value })}
+                            placeholder="Nhập đáp án D"
+                            style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #cbd5e1' }}
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                          type="submit"
+                          disabled={isSavingQuestion}
+                          style={{
+                            padding: '8px 16px',
+                            backgroundColor: '#059669',
+                            color: '#ffffff',
+                            border: 'none',
+                            borderRadius: 6,
+                            fontWeight: 600,
+                            cursor: isSavingQuestion ? 'not-allowed' : 'pointer',
+                            fontSize: 13.5,
+                          }}
+                        >
+                          {isSavingQuestion
+                            ? 'Đang lưu...'
+                            : editingQuestionId
+                            ? 'Cập nhật câu hỏi'
+                            : 'Lưu câu hỏi'}
+                        </button>
+                        {editingQuestionId && (
+                          <button
+                            type="button"
+                            onClick={() => resetQuestionForm(lesson.id, quizQuestions.length + 1)}
+                            style={{
+                              padding: '8px 14px',
+                              backgroundColor: '#e2e8f0',
+                              color: '#334155',
+                              border: 'none',
+                              borderRadius: 6,
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              fontSize: 13.5,
+                            }}
+                          >
+                            Hủy sửa
+                          </button>
+                        )}
+                      </div>
+                    </form>
+
+                    {/* Danh sách câu hỏi đã tạo */}
+                    {isLoadingQuiz ? (
+                      <p style={{ fontSize: 13.5 }}>Đang tải câu hỏi...</p>
+                    ) : quizQuestions.length === 0 ? (
+                      <div style={{ fontSize: 13.5, color: '#64748b' }}>
+                        Chưa có câu hỏi nào cho bài học này.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {quizQuestions.map((q) => (
+                          <div
+                            key={q.id}
+                            style={{
+                              padding: 14,
+                              backgroundColor: '#ffffff',
+                              borderRadius: 8,
+                              border: '1px solid #e2e8f0',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'flex-start',
+                              gap: 12,
+                            }}
+                          >
+                            <div>
+                              <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 14 }}>
+                                Câu {q.orderIndex}: {q.questionText}
+                              </div>
+                              <div
+                                style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: '1fr 1fr',
+                                  gap: '4px 18px',
+                                  marginTop: 6,
+                                  fontSize: 13,
+                                  color: '#334155',
+                                }}
+                              >
+                                <span style={{ fontWeight: q.correctOption === 'A' ? 700 : 400, color: q.correctOption === 'A' ? '#15803d' : undefined }}>
+                                  A. {q.optionA} {q.correctOption === 'A' && '(Đúng)'}
+                                </span>
+                                <span style={{ fontWeight: q.correctOption === 'B' ? 700 : 400, color: q.correctOption === 'B' ? '#15803d' : undefined }}>
+                                  B. {q.optionB} {q.correctOption === 'B' && '(Đúng)'}
+                                </span>
+                                <span style={{ fontWeight: q.correctOption === 'C' ? 700 : 400, color: q.correctOption === 'C' ? '#15803d' : undefined }}>
+                                  C. {q.optionC} {q.correctOption === 'C' && '(Đúng)'}
+                                </span>
+                                <span style={{ fontWeight: q.correctOption === 'D' ? 700 : 400, color: q.correctOption === 'D' ? '#15803d' : undefined }}>
+                                  D. {q.optionD} {q.correctOption === 'D' && '(Đúng)'}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button
+                                onClick={() => handleEditQuestion(q)}
+                                style={{
+                                  padding: '5px 10px',
+                                  borderRadius: 6,
+                                  border: '1px solid #cbd5e1',
+                                  backgroundColor: '#ffffff',
+                                  fontSize: 12.5,
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Sửa
+                              </button>
+                              <button
+                                onClick={() => handleDeleteQuestion(q)}
+                                style={{
+                                  padding: '5px 10px',
+                                  borderRadius: 6,
+                                  border: 'none',
+                                  backgroundColor: '#fee2e2',
+                                  color: '#b91c1c',
+                                  fontSize: 12.5,
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Xóa
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })

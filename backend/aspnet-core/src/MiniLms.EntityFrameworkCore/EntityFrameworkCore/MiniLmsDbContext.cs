@@ -14,8 +14,7 @@ using Volo.Abp.PermissionManagement.EntityFrameworkCore;
 using Volo.Abp.SettingManagement.EntityFrameworkCore;
 using Volo.Abp.TenantManagement;
 using Volo.Abp.TenantManagement.EntityFrameworkCore;
-using MiniLms.Courses;
-using MiniLms.Enrollments;
+using MiniLms.Quizzes;
 using Volo.Abp.EntityFrameworkCore.Modeling;
 
 namespace MiniLms.EntityFrameworkCore;
@@ -30,11 +29,13 @@ public class MiniLmsDbContext :
 {
     /* Add DbSet properties for your Aggregate Roots / Entities here. */
 
-     // 1. Khai báo 4 bảng nghiệp vụ của Mini LMS
+    // 1. Khai báo các bảng nghiệp vụ của Mini LMS
     public DbSet<Course> Courses { get; set; }
     public DbSet<Lesson> Lessons { get; set; }
     public DbSet<Enrollment> Enrollments { get; set; }
     public DbSet<LessonProgress> LessonProgresses { get; set; }
+    public DbSet<QuizQuestion> QuizQuestions { get; set; }
+    public DbSet<QuizAttempt> QuizAttempts { get; set; }
 
     #region Entities from the modules
 
@@ -171,6 +172,47 @@ public class MiniLmsDbContext :
 
             // Mỗi bài học trong 1 lượt đăng ký chỉ có duy nhất 1 bản ghi tiến độ
             b.HasIndex(x => new { x.EnrollmentId, x.LessonId }).IsUnique();
+        });
+
+        // 5. Bảng QuizQuestions (Câu hỏi trắc nghiệm gắn với từng bài học)
+        builder.Entity<QuizQuestion>(b =>
+        {
+            b.ToTable("QuizQuestions");
+            b.ConfigureByConvention();
+
+            b.Property(x => x.QuestionText).IsRequired().HasMaxLength(1000);
+            b.Property(x => x.OptionA).IsRequired().HasMaxLength(500);
+            b.Property(x => x.OptionB).IsRequired().HasMaxLength(500);
+            b.Property(x => x.OptionC).IsRequired().HasMaxLength(500);
+            b.Property(x => x.OptionD).IsRequired().HasMaxLength(500);
+            b.Property(x => x.CorrectOption).IsRequired().HasMaxLength(2);
+
+            b.HasOne<Lesson>()
+                .WithMany()
+                .HasForeignKey(x => x.LessonId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            b.HasIndex(x => new { x.LessonId, x.OrderIndex });
+        });
+
+        // 6. Bảng QuizAttempts (Lịch sử nộp bài trắc nghiệm của Học viên)
+        builder.Entity<QuizAttempt>(b =>
+        {
+            b.ToTable("QuizAttempts");
+            b.ConfigureByConvention();
+
+            b.HasOne<Enrollment>()
+                .WithMany()
+                .HasForeignKey(x => x.EnrollmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Dùng Restrict để tránh lỗi multiple cascade paths trên SQL Server
+            b.HasOne<Lesson>()
+                .WithMany()
+                .HasForeignKey(x => x.LessonId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            b.HasIndex(x => new { x.EnrollmentId, x.LessonId });
         });
     }
 }

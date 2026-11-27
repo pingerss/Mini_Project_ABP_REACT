@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using MiniLms.Courses;
 using MiniLms.Enrollments.Dtos;
+using MiniLms.Quizzes;
 using Volo.Abp;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Domain.Repositories;
@@ -19,17 +20,20 @@ public class EnrollmentAppService : ApplicationService, IEnrollmentAppService
     private readonly IRepository<LessonProgress, Guid> _progressRepository;
     private readonly IRepository<Course, Guid> _courseRepository;
     private readonly IRepository<Lesson, Guid> _lessonRepository;
+    private readonly IRepository<QuizQuestion, Guid> _quizQuestionRepository;
 
     public EnrollmentAppService(
         IRepository<Enrollment, Guid> enrollmentRepository,
         IRepository<LessonProgress, Guid> progressRepository,
         IRepository<Course, Guid> courseRepository,
-        IRepository<Lesson, Guid> lessonRepository)
+        IRepository<Lesson, Guid> lessonRepository,
+        IRepository<QuizQuestion, Guid> quizQuestionRepository)
     {
         _enrollmentRepository = enrollmentRepository;
         _progressRepository = progressRepository;
         _courseRepository = courseRepository;
         _lessonRepository = lessonRepository;
+        _quizQuestionRepository = quizQuestionRepository;
     }
 
     // Tự động sinh API: POST /api/app/enrollment/enroll/{courseId}
@@ -108,6 +112,11 @@ public class EnrollmentAppService : ApplicationService, IEnrollmentAppService
             .OrderBy(x => x.OrderIndex)
             .ToList();
 
+        var lessonIds = lessons.Select(l => l.Id).ToList();
+        var quizQuestions = lessonIds.Count > 0
+            ? await _quizQuestionRepository.GetListAsync(q => lessonIds.Contains(q.LessonId))
+            : new List<QuizQuestion>();
+
         var progresses = await _progressRepository.GetListAsync(x => x.EnrollmentId == enrollment.Id);
 
         var lessonItems = lessons.Select(l =>
@@ -121,7 +130,8 @@ public class EnrollmentAppService : ApplicationService, IEnrollmentAppService
                 Content = l.Content,
                 OrderIndex = l.OrderIndex,
                 IsCompleted = prog?.IsCompleted ?? false,
-                CompletedAt = prog?.CompletedAt
+                CompletedAt = prog?.CompletedAt,
+                QuizQuestionCount = quizQuestions.Count(q => q.LessonId == l.Id)
             };
         }).ToList();
 
@@ -153,6 +163,17 @@ public class EnrollmentAppService : ApplicationService, IEnrollmentAppService
         if (enrollment == null)
         {
             throw new UserFriendlyException("Không tìm thấy thông tin đăng ký khóa học của bạn.");
+        }
+
+        // Nếu bài học có câu hỏi Quiz và học viên muốn đánh dấu hoàn thành tay -> yêu cầu làm bài Quiz đạt >= 70%
+        if (input.IsCompleted)
+        {
+            var quizCount = await _quizQuestionRepository.CountAsync(q => q.LessonId == input.LessonId);
+            if (quizCount > 0)
+            {
+                throw new UserFriendlyException(
+                    "Bài học này có bài kiểm tra trắc nghiệm cuối bài. Vui lòng nộp bài kiểm tra đạt từ 70% trở lên để hoàn thành bài học!");
+            }
         }
 
         var progress = await _progressRepository.FirstOrDefaultAsync(
