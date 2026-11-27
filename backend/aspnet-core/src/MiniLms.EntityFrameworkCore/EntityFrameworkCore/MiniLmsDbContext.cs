@@ -1,4 +1,6 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
+using MiniLms.Courses;
+using MiniLms.Enrollments;
 using Volo.Abp.AuditLogging.EntityFrameworkCore;
 using Volo.Abp.BackgroundJobs.EntityFrameworkCore;
 using Volo.Abp.Data;
@@ -12,6 +14,9 @@ using Volo.Abp.PermissionManagement.EntityFrameworkCore;
 using Volo.Abp.SettingManagement.EntityFrameworkCore;
 using Volo.Abp.TenantManagement;
 using Volo.Abp.TenantManagement.EntityFrameworkCore;
+using MiniLms.Courses;
+using MiniLms.Enrollments;
+using Volo.Abp.EntityFrameworkCore.Modeling;
 
 namespace MiniLms.EntityFrameworkCore;
 
@@ -24,6 +29,12 @@ public class MiniLmsDbContext :
     ITenantManagementDbContext
 {
     /* Add DbSet properties for your Aggregate Roots / Entities here. */
+
+     // 1. Khai báo 4 bảng nghiệp vụ của Mini LMS
+    public DbSet<Course> Courses { get; set; }
+    public DbSet<Lesson> Lessons { get; set; }
+    public DbSet<Enrollment> Enrollments { get; set; }
+    public DbSet<LessonProgress> LessonProgresses { get; set; }
 
     #region Entities from the modules
 
@@ -82,5 +93,84 @@ public class MiniLmsDbContext :
         //    b.ConfigureByConvention(); //auto configure for the base class props
         //    //...
         //});
+
+
+
+          builder.Entity<Course>(b =>
+        {
+            b.ToTable("Courses");
+            b.ConfigureByConvention(); // WHY: Tự động cấu hình các cột chuẩn của ABP (Id, CreationTime, IsDeleted...)
+
+            b.Property(x => x.Title).IsRequired().HasMaxLength(200);
+            b.Property(x => x.Description).HasMaxLength(2000);
+
+            // Khóa ngoại: Courses.InstructorId -> AbpUsers.Id
+            b.HasOne<IdentityUser>()
+                .WithMany()
+                .HasForeignKey(x => x.InstructorId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Quan hệ 1-N: Course -> Lessons
+            b.HasMany(x => x.Lessons)
+                .WithOne()
+                .HasForeignKey(x => x.CourseId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // 2. Bảng Lessons
+        builder.Entity<Lesson>(b =>
+        {
+            b.ToTable("Lessons");
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Title).IsRequired().HasMaxLength(200);
+            b.Property(x => x.VideoUrl).HasMaxLength(500);
+            b.HasIndex(x => new { x.CourseId, x.OrderIndex });
+        });
+
+        // 3. Bảng Enrollments
+        builder.Entity<Enrollment>(b =>
+        {
+            b.ToTable("Enrollments");
+            b.ConfigureByConvention();
+
+            // Khóa ngoại: Enrollments.CourseId -> Courses.Id
+            b.HasOne<Course>()
+                .WithMany()
+                .HasForeignKey(x => x.CourseId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Khóa ngoại: Enrollments.StudentId -> AbpUsers.Id
+            b.HasOne<IdentityUser>()
+                .WithMany()
+                .HasForeignKey(x => x.StudentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // WHY: Unique Index đảm bảo 1 học viên không bao giờ đăng ký trùng 2 lần vào cùng 1 khóa học
+            b.HasIndex(x => new { x.CourseId, x.StudentId }).IsUnique();
+
+            // Quan hệ 1-N: Enrollment -> LessonProgresses
+            b.HasMany(x => x.LessonProgresses)
+                .WithOne()
+                .HasForeignKey(x => x.EnrollmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // 4. Bảng LessonProgresses
+        builder.Entity<LessonProgress>(b =>
+        {
+            b.ToTable("LessonProgresses");
+            b.ConfigureByConvention();
+
+            // Khóa ngoại: LessonProgresses.LessonId -> Lessons.Id
+            // Dùng Restrict để tránh lỗi multiple cascade paths trên SQL Server (Course -> Lessons -> LessonProgresses)
+            b.HasOne<Lesson>()
+                .WithMany()
+                .HasForeignKey(x => x.LessonId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Mỗi bài học trong 1 lượt đăng ký chỉ có duy nhất 1 bản ghi tiến độ
+            b.HasIndex(x => new { x.EnrollmentId, x.LessonId }).IsUnique();
+        });
     }
 }

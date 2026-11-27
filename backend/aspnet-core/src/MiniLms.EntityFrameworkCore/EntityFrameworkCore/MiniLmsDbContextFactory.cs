@@ -16,10 +16,13 @@ public class MiniLmsDbContextFactory : IDesignTimeDbContextFactory<MiniLmsDbCont
 
         var configuration = BuildConfiguration();
 
-        var builder = new DbContextOptionsBuilder<MiniLmsDbContext>()
-            .UseSqlite(configuration.GetConnectionString("Default"));
+        // var builder = new DbContextOptionsBuilder<MiniLmsDbContext>()
+        //     .UseSqlite(configuration.GetConnectionString("Default"));
 
-        return new MiniLmsDbContext(builder.Options);
+        // return new MiniLmsDbContext(builder.Options);
+        var builder = new DbContextOptionsBuilder<MiniLmsDbContext>()
+    .UseSqlServer(configuration.GetConnectionString("Default"));
+            return new MiniLmsDbContext(builder.Options);
     }
 
     private static IConfigurationRoot BuildConfiguration()

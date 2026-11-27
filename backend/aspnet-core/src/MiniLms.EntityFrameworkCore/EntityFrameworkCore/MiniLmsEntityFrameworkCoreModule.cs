@@ -4,7 +4,7 @@ using Volo.Abp.Uow;
 using Volo.Abp.AuditLogging.EntityFrameworkCore;
 using Volo.Abp.BackgroundJobs.EntityFrameworkCore;
 using Volo.Abp.EntityFrameworkCore;
-using Volo.Abp.EntityFrameworkCore.Sqlite;
+using Volo.Abp.EntityFrameworkCore.SqlServer;
 using Volo.Abp.FeatureManagement.EntityFrameworkCore;
 using Volo.Abp.Identity.EntityFrameworkCore;
 using Volo.Abp.Modularity;
@@ -21,7 +21,7 @@ namespace MiniLms.EntityFrameworkCore;
     typeof(AbpOpenIddictEntityFrameworkCoreModule),
     typeof(AbpPermissionManagementEntityFrameworkCoreModule),
     typeof(AbpSettingManagementEntityFrameworkCoreModule),
-    typeof(AbpEntityFrameworkCoreSqliteModule),
+    typeof(AbpEntityFrameworkCoreSqlServerModule),
     typeof(AbpBackgroundJobsEntityFrameworkCoreModule),
     typeof(AbpAuditLoggingEntityFrameworkCoreModule),
     typeof(AbpTenantManagementEntityFrameworkCoreModule),
@@ -47,12 +47,12 @@ public class MiniLmsEntityFrameworkCoreModule : AbpModule
         {
                 /* The main point to change your DBMS.
                  * See also MiniLmsMigrationsDbContextFactory for EF Core tooling. */
-            options.UseSqlite();
+            options.UseSqlServer();
         });
 
-        Configure<AbpUnitOfWorkDefaultOptions>(options =>
-        {
-            options.TransactionBehavior = UnitOfWorkTransactionBehavior.Disabled;
-        });
+        // Configure<AbpUnitOfWorkDefaultOptions>(options =>
+        // {
+        //     options.TransactionBehavior = UnitOfWorkTransactionBehavior.Disabled;
+        // });
     }
 }

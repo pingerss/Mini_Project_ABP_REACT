@@ -102,6 +102,21 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
                 clientUri: swaggerRootUrl
             );
         }
+        // React Frontend Client (MiniLms_App)
+        await CreateApplicationAsync(
+            name: "MiniLms_App",
+            type: OpenIddictConstants.ClientTypes.Public,
+            consentType: OpenIddictConstants.ConsentTypes.Implicit,
+            displayName: "React Mini LMS Application",
+            secret: null,
+            grantTypes: new List<string>
+            {
+                OpenIddictConstants.GrantTypes.Password,
+                OpenIddictConstants.GrantTypes.RefreshToken
+            },
+            scopes: commonScopes,
+            clientUri: "http://localhost:5173"
+        );
     }
 
     private async Task CreateApplicationAsync(
